@@ -160,6 +160,30 @@ func TestServiceRejectsDuplicateRecord(t *testing.T) {
 	}
 }
 
+func TestServiceStopFailureClearsRecordingState(t *testing.T) {
+	recorder := &testutil.Recorder{StopErr: errors.New("ffmpeg stopped with error")}
+	service := NewService(Dependencies{
+		Recorder:    recorder,
+		Transcriber: testutil.Provider{},
+		Chat:        testutil.Provider{},
+		Context:     &testutil.ContextStore{},
+	})
+
+	if _, err := service.Record(context.Background(), AudioSourceMic); err != nil {
+		t.Fatal(err)
+	}
+	result, err := service.Stop(context.Background())
+	if err == nil {
+		t.Fatal("expected stop error")
+	}
+	if result.Recording {
+		t.Fatalf("result = %+v, want recording cleared after stop attempt", result)
+	}
+	if _, err := service.Record(context.Background(), AudioSourceMic); err != nil {
+		t.Fatalf("record after failed stop = %v", err)
+	}
+}
+
 type recordingProvider struct {
 	transcript Transcript
 	summary    Summary

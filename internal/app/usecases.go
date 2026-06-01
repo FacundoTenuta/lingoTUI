@@ -138,10 +138,10 @@ func (s *Service) Stop(ctx context.Context) (Result, error) {
 		return s.result(CommandStop, ""), err
 	}
 	file, err := s.deps.Recorder.Stop(ctx)
+	s.recording = false
 	if err != nil {
 		return s.result(CommandStop, ""), fmt.Errorf("stop recording: %w", err)
 	}
-	s.recording = false
 	transcript, err := s.deps.Transcriber.Transcribe(ctx, file, cfg.TranscriptionModel)
 	if err != nil {
 		return s.result(CommandStop, ""), fmt.Errorf("transcribe audio: %w", err)

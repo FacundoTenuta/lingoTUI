@@ -29,7 +29,7 @@ Create a small Go module using Bubble Tea for shell state and Lip Gloss for view
 | File | Action | Description |
 |---|---|---|
 | `go.mod` | Create | Module and Bubble Tea/Lip Gloss dependencies. |
-| `cmd/lingotui/main.go` | Create | Program entrypoint wiring stores, recorder, providers, and TUI. |
+| `cmd/lingotui/main.go` | Create | Safe entrypoint that reports config/credential paths; full live TUI/provider/audio runtime composition is deferred to avoid surprising network or microphone access. |
 | `internal/app/{commands,usecases,ports,types}.go` | Create | Parser, use cases, interfaces, shared domain types. |
 | `internal/tui/{model,update,view}.go` | Create | Bubble Tea shell state, command submission, styled output. |
 | `internal/audio/{recorder,ffmpeg}.go` | Create | Recorder port and ffmpeg microphone adapter. |
@@ -64,7 +64,12 @@ type ContextStore interface{ Replace(RecentContext); Current() (RecentContext, b
 
 No migration required. Roll out as phased first slice: scaffold module and tests, then TUI shell, stores, fake flow, OpenAI seam, ffmpeg mic adapter. System audio, browser login, stricter real-time translation, and additional providers stay deferred behind interfaces.
 
+## Resolved Decisions
+
+- [x] Default transcription model: `gpt-4o-transcribe`.
+- [x] Default chat/summarization model: `gpt-4o-mini`.
+- [x] MVP credential storage: local `auth.json` outside the repo; macOS Keychain remains a future adapter.
+
 ## Open Questions
 
-- [ ] Which OpenAI transcription and chat models should be default?
-- [ ] Should first credential storage be file-only or include Keychain immediately if small?
+None for this foundation change.

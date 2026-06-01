@@ -40,13 +40,13 @@ Chain strategy: pending
 
 ## Phase 3: Provider and Audio Adapters
 
-- [ ] 3.1 Create `internal/provider/registry.go` and `internal/provider/provider.go` with OpenAI-first model registry and future provider/browser-auth seams.
-- [ ] 3.2 Create `internal/provider/openai/client.go` for minimal API-key transcription/chat adapter; keep live calls behind interfaces and env-gated tests.
-- [ ] 3.3 Create `internal/audio/recorder.go` and `internal/audio/ffmpeg.go` ffmpeg-first mic adapter with temporary audio and clear unsupported system/both errors.
+- [x] 3.1 Create `internal/provider/registry.go` and `internal/provider/provider.go` with OpenAI-first model registry and future provider/browser-auth seams.
+- [x] 3.2 Create `internal/provider/openai/client.go` for minimal API-key transcription/chat adapter; keep live calls behind interfaces and env-gated tests.
+- [x] 3.3 Create `internal/audio/recorder.go` and `internal/audio/ffmpeg.go` ffmpeg-first mic adapter with temporary audio and clear unsupported system/both errors.
 
 ## Phase 4: Tests and Docs
 
 - [x] 4.1 Add table-driven tests in `internal/app/commands_test.go`, `internal/app/usecases_test.go`, `internal/config/file_store_test.go`, and `internal/credentials/file_store_test.go` for command, provider, storage, context, and failure specs.
 - [x] 4.2 Add `internal/tui/model_test.go` `Model.Update` tests using fakes for `/help`, unknown command, connect-record-stop-summarize-ask, `/clear`, and provider/recorder errors.
-- [ ] 4.3 Add opt-in `internal/audio/ffmpeg_integration_test.go` and `internal/provider/openai/client_integration_test.go`, skipped in `testing.Short()` or without env/config.
-- [ ] 4.4 Create `README.md` with credential path, `auth.json`, model defaults, ffmpeg requirement, privacy/cost boundaries, and deferred roadmap seams.
+- [x] 4.3 Add opt-in `internal/audio/ffmpeg_integration_test.go` and `internal/provider/openai/client_integration_test.go`, skipped in `testing.Short()` or without env/config.
+- [x] 4.4 Create `README.md` with credential path, `auth.json`, model defaults, ffmpeg requirement, privacy/cost boundaries, and deferred roadmap seams.
