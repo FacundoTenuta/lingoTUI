@@ -51,6 +51,26 @@ After installing, launch the TUI:
 lingotui
 ```
 
+## Update
+
+Update an installed `lingotui` binary with:
+
+```sh
+lingotui update
+```
+
+The command runs:
+
+```sh
+go install github.com/FacundoTenuta/lingoTUI/cmd/lingotui@latest
+```
+
+To update to a specific version, set `LINGOTUI_VERSION`:
+
+```sh
+LINGOTUI_VERSION=v0.1.0 lingotui update
+```
+
 ## First-run onboarding
 
 On startup, lingoTUI reads local config/credential status and renders setup guidance. Startup is intentionally quiet:
