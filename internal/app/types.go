@@ -66,6 +66,17 @@ func (s *Secret) UnmarshalJSON(data []byte) error { return json.Unmarshal(data, 
 type AudioFile struct{ Path string }
 type Transcript struct{ Text string }
 type Language string
+
+const (
+	LanguageSpanish Language = "es"
+	LanguageEnglish Language = "en"
+	LanguageGerman  Language = "de"
+)
+
+func SummaryLanguages() []Language {
+	return []Language{LanguageSpanish, LanguageEnglish, LanguageGerman}
+}
+
 type Summary map[Language]string
 type Question string
 type Answer string

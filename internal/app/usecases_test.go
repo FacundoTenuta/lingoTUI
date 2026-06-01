@@ -1,0 +1,183 @@
+package app_test
+
+import (
+	"context"
+	"errors"
+	"reflect"
+	"testing"
+
+	. "github.com/FacundoTenuta/lingoTUI/internal/app"
+	"github.com/FacundoTenuta/lingoTUI/internal/testutil"
+)
+
+func TestServiceConnectUsesConfiguredCredential(t *testing.T) {
+	credentials := &testutil.CredentialStore{Secrets: map[ProviderID]Secret{ProviderOpenAI: {Value: "sk-test"}}}
+	service := NewService(Dependencies{Credentials: credentials})
+
+	result, err := service.Connect(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !result.Connected || result.Message == "" {
+		t.Fatalf("result = %+v", result)
+	}
+}
+
+func TestServiceConnectMissingCredentialIsActionable(t *testing.T) {
+	service := NewService(Dependencies{Credentials: &testutil.CredentialStore{}})
+
+	_, err := service.Connect(context.Background())
+	if !errors.Is(err, ErrMissingCredential) {
+		t.Fatalf("error = %v, want %v", err, ErrMissingCredential)
+	}
+}
+
+func TestServiceModelsUsesDefaultModels(t *testing.T) {
+	service := NewService(Dependencies{Config: &testutil.ConfigStore{}})
+
+	result, err := service.Models(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(result.Models) != 2 || result.Models[0].Name != DefaultTranscriptionModel || result.Models[1].Name != DefaultChatModel {
+		t.Fatalf("models = %+v", result.Models)
+	}
+}
+
+func TestServiceRecordStopSummarizeAskAndClear(t *testing.T) {
+	ctx := context.Background()
+	recorder := &testutil.Recorder{File: AudioFile{Path: "meeting.wav"}}
+	provider := &recordingProvider{
+		transcript: Transcript{Text: "hola mundo"},
+		summary: Summary{
+			LanguageSpanish: "saludo",
+			LanguageEnglish: "greeting",
+			LanguageGerman:  "begrüßung",
+		},
+		answer: Answer("They greeted each other."),
+	}
+	contexts := &testutil.ContextStore{}
+	service := NewService(Dependencies{
+		Recorder:    recorder,
+		Transcriber: provider,
+		Chat:        provider,
+		Config:      &testutil.ConfigStore{},
+		Context:     contexts,
+	})
+
+	if result, err := service.Record(ctx, AudioSourceMic); err != nil || !result.Recording || recorder.Started != AudioSourceMic {
+		t.Fatalf("record result = %+v, err = %v", result, err)
+	}
+	result, err := service.Stop(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result.Recording || !contexts.Has || result.Context.Summary[LanguageGerman] == "" {
+		t.Fatalf("stop result = %+v, stored = %+v", result, contexts)
+	}
+	if !reflect.DeepEqual(provider.languages, SummaryLanguages()) {
+		t.Fatalf("summary languages = %+v", provider.languages)
+	}
+
+	answer, err := service.Ask(ctx, Question("what happened?"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if answer.Answer != "They greeted each other." || provider.question != "what happened?" {
+		t.Fatalf("answer result = %+v, provider question = %q", answer, provider.question)
+	}
+
+	if _, err := service.Clear(ctx); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := service.Ask(ctx, Question("still there?")); !errors.Is(err, ErrNoRecentContext) {
+		t.Fatalf("error = %v, want %v", err, ErrNoRecentContext)
+	}
+}
+
+func TestServicePropagatesRecorderAndProviderErrors(t *testing.T) {
+	tests := []struct {
+		name string
+		deps Dependencies
+		call func(*Service) error
+	}{
+		{
+			name: "record start error",
+			deps: Dependencies{Recorder: &testutil.Recorder{StartErr: errors.New("no microphone")}},
+			call: func(s *Service) error { _, err := s.Record(context.Background(), AudioSourceMic); return err },
+		},
+		{
+			name: "stop transcribe error",
+			deps: Dependencies{Recorder: &testutil.Recorder{}, Transcriber: testutil.Provider{Err: errors.New("provider down")}, Chat: testutil.Provider{}, Context: &testutil.ContextStore{}},
+			call: func(s *Service) error {
+				if _, err := s.Record(context.Background(), AudioSourceMic); err != nil {
+					return err
+				}
+				_, err := s.Stop(context.Background())
+				return err
+			},
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if err := tt.call(NewService(tt.deps)); err == nil {
+				t.Fatal("expected error")
+			}
+		})
+	}
+}
+
+func TestServiceRejectsStopWithoutActiveRecording(t *testing.T) {
+	service := NewService(Dependencies{
+		Recorder:    &testutil.Recorder{},
+		Transcriber: testutil.Provider{},
+		Chat:        testutil.Provider{},
+		Context:     &testutil.ContextStore{},
+	})
+
+	result, err := service.Stop(context.Background())
+	if !errors.Is(err, ErrNotRecording) {
+		t.Fatalf("error = %v, want %v", err, ErrNotRecording)
+	}
+	if result.Recording {
+		t.Fatalf("result = %+v, want not recording", result)
+	}
+}
+
+func TestServiceRejectsDuplicateRecord(t *testing.T) {
+	recorder := &testutil.Recorder{}
+	service := NewService(Dependencies{Recorder: recorder})
+
+	if _, err := service.Record(context.Background(), AudioSourceMic); err != nil {
+		t.Fatal(err)
+	}
+	result, err := service.Record(context.Background(), AudioSourceMic)
+	if !errors.Is(err, ErrAlreadyRecording) {
+		t.Fatalf("error = %v, want %v", err, ErrAlreadyRecording)
+	}
+	if !result.Recording {
+		t.Fatalf("result = %+v, want still recording", result)
+	}
+}
+
+type recordingProvider struct {
+	transcript Transcript
+	summary    Summary
+	answer     Answer
+	languages  []Language
+	question   Question
+}
+
+func (p *recordingProvider) Transcribe(context.Context, AudioFile, ModelRef) (Transcript, error) {
+	return p.transcript, nil
+}
+
+func (p *recordingProvider) Summarize(_ context.Context, _ Transcript, languages []Language, _ ModelRef) (Summary, error) {
+	p.languages = append([]Language(nil), languages...)
+	return p.summary, nil
+}
+
+func (p *recordingProvider) Answer(_ context.Context, question Question, _ RecentContext, _ ModelRef) (Answer, error) {
+	p.question = question
+	return p.answer, nil
+}

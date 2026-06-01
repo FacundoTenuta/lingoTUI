@@ -34,9 +34,9 @@ Chain strategy: pending
 
 ## Phase 2: Fakeable App Flow and TUI
 
-- [ ] 2.1 Create `internal/context/memory.go` for in-memory transcript, ES/EN/DE summary, answer context, and `/clear` behavior.
-- [ ] 2.2 Create `internal/app/usecases.go` routing connect, models, record, stop, ask, and clear through ports with configured defaults `gpt-4o-transcribe` and `gpt-4o-mini`.
-- [ ] 2.3 Create `internal/tui/model.go`, `internal/tui/update.go`, and `internal/tui/view.go`; delegate to app use cases and show actionable errors.
+- [x] 2.1 Create `internal/context/memory.go` for in-memory transcript, ES/EN/DE summary, answer context, and `/clear` behavior.
+- [x] 2.2 Create `internal/app/usecases.go` routing connect, models, record, stop, ask, and clear through ports with configured defaults `gpt-4o-transcribe` and `gpt-4o-mini`.
+- [x] 2.3 Create `internal/tui/model.go`, `internal/tui/update.go`, and `internal/tui/view.go`; delegate to app use cases and show actionable errors.
 
 ## Phase 3: Provider and Audio Adapters
 
@@ -46,7 +46,7 @@ Chain strategy: pending
 
 ## Phase 4: Tests and Docs
 
-- [ ] 4.1 Add table-driven tests in `internal/app/commands_test.go`, `internal/app/usecases_test.go`, `internal/config/file_store_test.go`, and `internal/credentials/file_store_test.go` for command, provider, storage, context, and failure specs.
-- [ ] 4.2 Add `internal/tui/model_test.go` `Model.Update` tests using fakes for `/help`, unknown command, connect-record-stop-summarize-ask, `/clear`, and provider/recorder errors.
+- [x] 4.1 Add table-driven tests in `internal/app/commands_test.go`, `internal/app/usecases_test.go`, `internal/config/file_store_test.go`, and `internal/credentials/file_store_test.go` for command, provider, storage, context, and failure specs.
+- [x] 4.2 Add `internal/tui/model_test.go` `Model.Update` tests using fakes for `/help`, unknown command, connect-record-stop-summarize-ask, `/clear`, and provider/recorder errors.
 - [ ] 4.3 Add opt-in `internal/audio/ffmpeg_integration_test.go` and `internal/provider/openai/client_integration_test.go`, skipped in `testing.Short()` or without env/config.
 - [ ] 4.4 Create `README.md` with credential path, `auth.json`, model defaults, ffmpeg requirement, privacy/cost boundaries, and deferred roadmap seams.
