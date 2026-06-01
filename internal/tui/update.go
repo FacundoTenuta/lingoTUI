@@ -14,24 +14,89 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m.submit(msg.Input), nil
 	case tea.KeyMsg:
 		switch msg.String() {
-		case "ctrl+c", "esc":
+		case "ctrl+c":
 			return m, tea.Quit
+		case "esc":
+			if m.inputMode != menuMode {
+				m.inputMode = menuMode
+				m.Input = ""
+				return m, nil
+			}
+			return m, tea.Quit
+		case "up":
+			if m.inputMode == menuMode {
+				m.MenuIndex = (m.MenuIndex + len(menuItems) - 1) % len(menuItems)
+			}
+			return m, nil
+		case "k":
+			if m.inputMode == menuMode {
+				m.MenuIndex = (m.MenuIndex + len(menuItems) - 1) % len(menuItems)
+				return m, nil
+			}
+			m.Input += msg.String()
+		case "down":
+			if m.inputMode == menuMode {
+				m.MenuIndex = (m.MenuIndex + 1) % len(menuItems)
+			}
+			return m, nil
+		case "j":
+			if m.inputMode == menuMode {
+				m.MenuIndex = (m.MenuIndex + 1) % len(menuItems)
+				return m, nil
+			}
+			m.Input += msg.String()
 		case "enter":
+			if m.inputMode == menuMode {
+				return m.submitMenuItem(), nil
+			}
+			if m.inputMode == askMode {
+				return m.submitAsk(), nil
+			}
 			return m.submit(m.Input), nil
 		case "backspace":
 			if len(m.Input) > 0 {
 				m.Input = m.Input[:len(m.Input)-1]
 			}
 		default:
+			if m.inputMode == menuMode {
+				m.inputMode = commandMode
+			}
 			m.Input += msg.String()
 		}
 	}
 	return m, nil
 }
 
+func (m Model) submitMenuItem() Model {
+	if len(menuItems) == 0 {
+		return m
+	}
+	if m.MenuIndex < 0 || m.MenuIndex >= len(menuItems) {
+		m.MenuIndex = 0
+	}
+	item := menuItems[m.MenuIndex]
+	if item.Ask {
+		m.inputMode = askMode
+		m.Input = ""
+		return m
+	}
+	return m.submit(item.Command)
+}
+
+func (m Model) submitAsk() Model {
+	question := strings.TrimSpace(m.Input)
+	m.inputMode = menuMode
+	m.Input = ""
+	if question == "" {
+		return m
+	}
+	return m.submit("/ask " + question)
+}
+
 func (m Model) submit(input string) Model {
 	input = strings.TrimSpace(input)
 	m.Input = ""
+	m.inputMode = menuMode
 	if input == "" {
 		return m
 	}

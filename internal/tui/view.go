@@ -29,7 +29,28 @@ func (m Model) View() string {
 		b.WriteByte('\n')
 	}
 	b.WriteByte('\n')
-	b.WriteString(promptStyle.Render("> "))
+	if m.inputMode == menuMode {
+		b.WriteString("Use up/down or k/j to choose, Enter to run. Type / for a command.\n")
+		for i, item := range menuItems {
+			cursor := "  "
+			if i == m.MenuIndex {
+				cursor = "> "
+			}
+			b.WriteString(promptStyle.Render(cursor))
+			b.WriteString(item.Label)
+			if item.Description != "" {
+				b.WriteString(" - ")
+				b.WriteString(item.Description)
+			}
+			b.WriteByte('\n')
+		}
+		return b.String()
+	}
+	if m.inputMode == askMode {
+		b.WriteString(promptStyle.Render("Ask > "))
+	} else {
+		b.WriteString(promptStyle.Render("> "))
+	}
 	b.WriteString(m.Input)
 	return b.String()
 }
