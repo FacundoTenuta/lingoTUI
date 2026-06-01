@@ -5,11 +5,27 @@ lingoTUI is a terminal-first language survival assistant. The current MVP opens 
 ## Quick path
 
 1. Install Go and `ffmpeg`.
-2. Install the command with `go install ./cmd/lingotui` from this repository, or use the remote install command below.
+2. Install the command with `./install.sh`, or use the manual commands below.
 3. Create local credentials in `auth.json` before using OpenAI-backed flows.
 4. Run `lingotui`; the first screen shows setup status and waits for your command.
 
 ## Install
+
+### Installer script
+
+From a local checkout, run the installer. By default it installs the latest published `lingotui` command with `go install`:
+
+```sh
+./install.sh
+```
+
+The installer runs `go install`, detects Go's binary directory, and adds it to your shell profile when it is missing from `PATH`.
+
+To install a specific version:
+
+```sh
+LINGOTUI_VERSION=v0.1.0 ./install.sh
+```
 
 ### Local checkout
 
