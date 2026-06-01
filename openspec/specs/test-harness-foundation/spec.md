@@ -8,7 +8,7 @@ Defines the behaviors that must be verifiable without live audio devices or paid
 
 ### Requirement: Verifiable Command and Adapter Outcomes
 
-The system MUST make command routing, provider outcomes, credential/storage outcomes, and recorder outcomes testable with controlled substitutes. Tests SHALL cover successful flows and error states for the first-slice commands.
+The system MUST make command routing, provider outcomes, credential/storage outcomes, recorder outcomes, installable runtime startup, and onboarding status testable with controlled substitutes. Tests SHALL cover successful flows and error states for first-slice commands, and MUST verify startup/onboarding without live audio devices, recording, network calls, or paid provider calls.
 
 #### Scenario: Successful flow is testable without external services
 
@@ -21,3 +21,10 @@ The system MUST make command routing, provider outcomes, credential/storage outc
 - GIVEN controlled provider, credential, or recorder failures
 - WHEN a first-slice command encounters a failure
 - THEN the system returns the expected user-facing error state
+
+#### Scenario: Startup onboarding is testable safely
+
+- GIVEN controlled credential and permission statuses
+- WHEN a test launches the runtime model
+- THEN onboarding messages are deterministic
+- AND no recorder or provider call is invoked

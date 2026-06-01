@@ -8,7 +8,7 @@ Defines provider connection, model selection, and credential privacy expectation
 
 ### Requirement: Provider Connection and Model State
 
-The system MUST support OpenAI API-key connection in the first slice. It MUST expose available models, allow model selection, keep credentials outside the project workspace, and MUST NOT print secret values. It SHOULD preserve future provider and browser-login auth paths without promising them in the first slice.
+The system MUST support OpenAI API-key connection in the first slice. It MUST expose available models only after explicit provider commands, allow model selection, keep credentials outside the project workspace in the local credential store or `auth.json`, and MUST NOT print secret values. Missing credentials MUST produce guidance without starting provider requests. It SHOULD preserve future provider and browser-login auth paths without promising them in the first slice.
 
 #### Scenario: Connect with configured key
 
@@ -23,3 +23,10 @@ The system MUST support OpenAI API-key connection in the first slice. It MUST ex
 - WHEN the user enters `/connect`
 - THEN the system explains how to configure credentials
 - AND does not start provider requests
+
+#### Scenario: Onboarding reports credential status safely
+
+- GIVEN onboarding inspects local provider setup
+- WHEN credential status is rendered
+- THEN it shows the credential path and redacted status
+- AND it does not make provider or network calls

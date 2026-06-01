@@ -8,7 +8,7 @@ Defines recording behavior for microphone-first audio capture and future source 
 
 ### Requirement: Audio Source Lifecycle
 
-The system MUST support `/record mic` and `/stop` as the first recording flow. It MUST show recording state, process only after stop, and keep captured audio temporary by default. It SHOULD reserve source choices for later system audio and combined microphone/system audio.
+The system MUST support `/record mic` and `/stop` as the first recording flow. It MUST show recording state, process only after stop, and keep captured audio temporary by default. Setup and onboarding MAY check or explain microphone permission state, but MUST NOT start recording until the user explicitly enters `/record mic`. It SHOULD reserve source choices for later system audio and combined microphone/system audio.
 
 #### Scenario: Microphone recording completes
 
@@ -21,3 +21,10 @@ The system MUST support `/record mic` and `/stop` as the first recording flow. I
 - GIVEN system audio is not implemented
 - WHEN the user requests system or combined audio
 - THEN the system reports the source is not available in this slice
+
+#### Scenario: Permission check does not record
+
+- GIVEN onboarding checks microphone readiness
+- WHEN the TUI opens
+- THEN the system may show permission guidance
+- AND no audio stream is opened
