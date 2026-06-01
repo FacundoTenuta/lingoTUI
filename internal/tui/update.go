@@ -55,6 +55,12 @@ func formatResult(result app.Result) []string {
 		for _, entry := range result.Help {
 			lines = append(lines, fmt.Sprintf("  %s — %s", entry.Command, entry.Description))
 		}
+		if len(result.Guidance) > 0 {
+			lines = append(lines, "", "Setup guidance:")
+			for _, line := range result.Guidance {
+				lines = append(lines, "  "+line)
+			}
+		}
 		return lines
 	}
 	if result.Context.Transcript.Text != "" || len(result.Context.Summary) > 0 {

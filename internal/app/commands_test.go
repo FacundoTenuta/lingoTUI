@@ -2,6 +2,7 @@ package app
 
 import (
 	"errors"
+	"strings"
 	"testing"
 )
 
@@ -50,6 +51,15 @@ func TestHelpEntriesCoverSupportedCommands(t *testing.T) {
 	for _, entry := range entries {
 		if entry.Command == "" || entry.Description == "" {
 			t.Fatalf("incomplete help entry: %+v", entry)
+		}
+	}
+}
+
+func TestDefaultSetupGuidanceCoversCredentialAndMicrophone(t *testing.T) {
+	guidance := strings.Join(DefaultSetupGuidance(), "\n")
+	for _, want := range []string{"auth.json", "/connect", "Microphone", "/record mic"} {
+		if !strings.Contains(guidance, want) {
+			t.Fatalf("guidance missing %q: %s", want, guidance)
 		}
 	}
 }

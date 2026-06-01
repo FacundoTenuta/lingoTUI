@@ -16,12 +16,13 @@ var (
 )
 
 type Dependencies struct {
-	Recorder    Recorder
-	Transcriber Transcriber
-	Chat        Chat
-	Config      ConfigStore
-	Credentials CredentialStore
-	Context     ContextStore
+	Recorder      Recorder
+	Transcriber   Transcriber
+	Chat          Chat
+	Config        ConfigStore
+	Credentials   CredentialStore
+	Context       ContextStore
+	SetupGuidance []string
 }
 
 type Service struct {
@@ -37,6 +38,7 @@ type Result struct {
 	Context   RecentContext
 	Answer    Answer
 	Help      []HelpEntry
+	Guidance  []string
 	Connected bool
 	Recording bool
 }
@@ -72,7 +74,7 @@ func (s *Service) HandleInput(ctx context.Context, input string) (Result, error)
 
 func (s *Service) Connect(ctx context.Context) (Result, error) {
 	if s.deps.Credentials == nil {
-		return s.result(CommandConnect, ""), fmt.Errorf("%w: credential store", ErrNotConfigured)
+		return s.result(CommandConnect, ""), fmt.Errorf("%w: credential store; add OpenAI credentials to auth.json before /connect", ErrNotConfigured)
 	}
 	cfg, err := s.loadConfig(ctx)
 	if err != nil {
@@ -108,7 +110,7 @@ func (s *Service) Record(ctx context.Context, source AudioSource) (Result, error
 		return s.result(CommandRecord, ""), fmt.Errorf("%w: run /stop before starting another recording", ErrAlreadyRecording)
 	}
 	if s.deps.Recorder == nil {
-		return s.result(CommandRecord, ""), fmt.Errorf("%w: recorder", ErrNotConfigured)
+		return s.result(CommandRecord, ""), fmt.Errorf("%w: recorder; /record mic is unavailable until microphone recording is configured", ErrNotConfigured)
 	}
 	if err := s.deps.Recorder.Start(ctx, source); err != nil {
 		return s.result(CommandRecord, ""), fmt.Errorf("start recording: %w", err)
@@ -125,10 +127,10 @@ func (s *Service) Stop(ctx context.Context) (Result, error) {
 		return s.result(CommandStop, ""), fmt.Errorf("%w: recorder", ErrNotConfigured)
 	}
 	if s.deps.Transcriber == nil {
-		return s.result(CommandStop, ""), fmt.Errorf("%w: transcriber", ErrNotConfigured)
+		return s.result(CommandStop, ""), fmt.Errorf("%w: transcriber; configure auth.json and run /connect before processing audio", ErrNotConfigured)
 	}
 	if s.deps.Chat == nil {
-		return s.result(CommandStop, ""), fmt.Errorf("%w: chat", ErrNotConfigured)
+		return s.result(CommandStop, ""), fmt.Errorf("%w: chat; configure auth.json and run /connect before processing audio", ErrNotConfigured)
 	}
 	if s.deps.Context == nil {
 		return s.result(CommandStop, ""), fmt.Errorf("%w: context store", ErrNotConfigured)
@@ -165,7 +167,7 @@ func (s *Service) Ask(ctx context.Context, question Question) (Result, error) {
 		return s.result(CommandAsk, ""), fmt.Errorf("%w: context store", ErrNotConfigured)
 	}
 	if s.deps.Chat == nil {
-		return s.result(CommandAsk, ""), fmt.Errorf("%w: chat", ErrNotConfigured)
+		return s.result(CommandAsk, ""), fmt.Errorf("%w: chat; configure auth.json and run /connect before /ask", ErrNotConfigured)
 	}
 	recent, ok := s.deps.Context.Current()
 	if !ok {
@@ -196,6 +198,11 @@ func (s *Service) Clear(context.Context) (Result, error) {
 func (s *Service) Help(context.Context) Result {
 	result := s.result(CommandHelp, "Supported commands:")
 	result.Help = HelpEntries()
+	if s.deps.SetupGuidance == nil {
+		result.Guidance = DefaultSetupGuidance()
+	} else {
+		result.Guidance = append([]string(nil), s.deps.SetupGuidance...)
+	}
 	return result
 }
 

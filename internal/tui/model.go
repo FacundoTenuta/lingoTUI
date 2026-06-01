@@ -21,13 +21,13 @@ type Model struct {
 
 type SubmitMsg struct{ Input string }
 
-func NewModel(service App) Model {
+func NewModel(service App, onboardingLines ...string) Model {
+	messages := []string{"lingoTUI ready. Type /help for commands."}
+	messages = append(messages, onboardingLines...)
 	return Model{
-		app: service,
-		ctx: context.Background(),
-		Messages: []string{
-			"lingoTUI ready. Type /help for commands.",
-		},
+		app:      service,
+		ctx:      context.Background(),
+		Messages: messages,
 	}
 }
 

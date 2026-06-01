@@ -17,8 +17,18 @@ func TestModelUpdateShowsHelp(t *testing.T) {
 
 	updated := submitModel(t, model, "/help")
 	view := updated.View()
-	if !strings.Contains(view, "/record mic") || !strings.Contains(view, "/ask <question>") {
+	if !strings.Contains(view, "/record mic") || !strings.Contains(view, "/ask <question>") || !strings.Contains(view, "auth.json") {
 		t.Fatalf("view missing help: %s", view)
+	}
+}
+
+func TestNewModelShowsStartupOnboarding(t *testing.T) {
+	model := NewModel(app.NewService(app.Dependencies{}), "Setup status:", "- OpenAI credentials: missing — add auth.json before /connect")
+	view := model.View()
+	for _, want := range []string{"lingoTUI ready", "Setup status", "auth.json", "/connect"} {
+		if !strings.Contains(view, want) {
+			t.Fatalf("view missing %q: %s", want, view)
+		}
 	}
 }
 

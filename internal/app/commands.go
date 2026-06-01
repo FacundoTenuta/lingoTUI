@@ -87,3 +87,10 @@ func HelpEntries() []HelpEntry {
 		{"/help", "show supported commands"},
 	}
 }
+
+func DefaultSetupGuidance() []string {
+	return []string{
+		"OpenAI: add an API key to auth.json, then run /connect. Secret values are never printed.",
+		"Microphone: grant macOS microphone permission before /record mic. Recording starts only after that command.",
+	}
+}

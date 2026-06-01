@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"reflect"
+	"strings"
 	"testing"
 
 	. "github.com/FacundoTenuta/lingoTUI/internal/app"
@@ -29,6 +30,11 @@ func TestServiceConnectMissingCredentialIsActionable(t *testing.T) {
 	_, err := service.Connect(context.Background())
 	if !errors.Is(err, ErrMissingCredential) {
 		t.Fatalf("error = %v, want %v", err, ErrMissingCredential)
+	}
+	for _, want := range []string{"auth.json", "/connect"} {
+		if !strings.Contains(err.Error(), want) {
+			t.Fatalf("error missing %q: %v", want, err)
+		}
 	}
 }
 
@@ -157,6 +163,52 @@ func TestServiceRejectsDuplicateRecord(t *testing.T) {
 	}
 	if !result.Recording {
 		t.Fatalf("result = %+v, want still recording", result)
+	}
+}
+
+func TestServiceHelpIncludesSetupGuidance(t *testing.T) {
+	service := NewService(Dependencies{})
+	result := service.Help(context.Background())
+	if len(result.Help) == 0 || len(result.Guidance) == 0 {
+		t.Fatalf("help result = %+v", result)
+	}
+	joined := strings.Join(result.Guidance, "\n")
+	for _, want := range []string{"auth.json", "/connect", "/record mic"} {
+		if !strings.Contains(joined, want) {
+			t.Fatalf("guidance missing %q: %s", want, joined)
+		}
+	}
+}
+
+func TestServiceNotConfiguredMessagesAreActionable(t *testing.T) {
+	tests := []struct {
+		name string
+		call func(*Service) error
+		want string
+	}{
+		{
+			name: "missing credential store",
+			call: func(s *Service) error { _, err := s.Connect(context.Background()); return err },
+			want: "auth.json",
+		},
+		{
+			name: "missing recorder",
+			call: func(s *Service) error { _, err := s.Record(context.Background(), AudioSourceMic); return err },
+			want: "/record mic",
+		},
+		{
+			name: "missing chat for ask",
+			call: func(s *Service) error { _, err := s.Ask(context.Background(), Question("hello?")); return err },
+			want: "/connect",
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			err := tt.call(NewService(Dependencies{Context: &testutil.ContextStore{Has: true}}))
+			if !errors.Is(err, ErrNotConfigured) || !strings.Contains(err.Error(), tt.want) {
+				t.Fatalf("error = %v, want ErrNotConfigured with %q", err, tt.want)
+			}
+		})
 	}
 }
 
