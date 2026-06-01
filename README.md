@@ -1,12 +1,55 @@
 # lingoTUI MVP foundation
 
-lingoTUI is a terminal-first language survival assistant. This MVP foundation provides the Go/Bubble Tea shell, app ports, OpenAI-first provider seam, ffmpeg microphone adapter, local config/credential stores, and opt-in integration tests.
+lingoTUI is a terminal-first language survival assistant. The current MVP opens a safe Bubble Tea shell, shows first-run setup guidance, and keeps recording/OpenAI calls behind explicit commands.
 
 ## Quick path
 
 1. Install Go and `ffmpeg`.
-2. Run `go test ./...` to verify the default offline suite.
+2. Install the command with `go install ./cmd/lingotui` from this repository, or use the remote install command below.
 3. Create local credentials in `auth.json` before using OpenAI-backed flows.
+4. Run `lingotui`; the first screen shows setup status and waits for your command.
+
+## Install
+
+### Local checkout
+
+```sh
+go install ./cmd/lingotui
+```
+
+### Remote module
+
+```sh
+go install github.com/FacundoTenuta/lingoTUI/cmd/lingotui@latest
+```
+
+Go writes installed binaries to `$GOBIN` when set, otherwise to `$GOPATH/bin` (usually `~/go/bin`). If your shell cannot find `lingotui`, add that directory to `PATH`:
+
+```sh
+export PATH="$(go env GOPATH)/bin:$PATH"
+```
+
+After installing, launch the TUI:
+
+```sh
+lingotui
+```
+
+## First-run onboarding
+
+On startup, lingoTUI reads local config/credential status and renders setup guidance. Startup is intentionally quiet:
+
+- No microphone recording starts.
+- No ffmpeg process starts.
+- No OpenAI or network request is made.
+- Secret values are never printed.
+
+Use `/help` inside the TUI for supported commands and setup reminders. The first useful sequence is:
+
+1. Add an OpenAI key to `auth.json`.
+2. Run `/connect` to mark the configured provider as connected.
+3. Run `/record mic` only when you choose to start microphone recording.
+4. Run `/stop` to stop recording and process the captured audio.
 
 ## Local files
 
@@ -69,14 +112,11 @@ Provider calls may incur OpenAI costs. The adapter avoids logging request header
 ## Privacy and cost boundaries
 
 - Recording is explicit: `/record mic` starts, `/stop` processes.
+- Startup and onboarding do not start ffmpeg, request/record microphone audio, or call OpenAI.
 - Recent transcript and summary context is in memory by default.
 - Audio files are temporary by default.
-- OpenAI API calls happen only through the provider adapter and require an API key.
+- OpenAI API calls happen only through the provider adapter, require an API key, and are triggered by explicit user commands.
 - Default tests do not make network calls or access audio devices.
-
-## Runtime composition status
-
-The foundation keeps TUI/use cases independent from provider and audio implementation details. The real OpenAI and ffmpeg adapters exist behind the app interfaces; full CLI runtime wiring is intentionally deferred until the next runtime-composition slice so startup can handle missing credentials/devices without surprising network or microphone access.
 
 ## Deferred roadmap seams
 

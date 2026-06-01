@@ -64,9 +64,9 @@ Revert `cmd/lingotui` to placeholder and remove onboarding/runtime README/spec a
 
 ## Success Criteria
 
-- [ ] `go install` produces `lingotui` that opens the TUI.
-- [ ] First-run onboarding covers audio permission and OpenAI setup.
-- [ ] Startup/onboarding perform no default recording, network, or cost actions.
-- [ ] Missing credentials/permissions produce actionable non-secret messages.
-- [ ] README covers install, PATH, onboarding, credentials, and safety.
-- [ ] `go test ./...` remains green with feasible runtime/onboarding coverage.
+- [x] `go install` produces `lingotui` that opens the TUI.
+- [x] First-run onboarding covers audio permission and OpenAI setup.
+- [x] Startup/onboarding perform no default recording, network, or cost actions.
+- [x] Missing credentials/permissions produce actionable non-secret messages.
+- [x] README covers install, PATH, onboarding, credentials, and safety.
+- [x] `go test ./...` remains green with feasible runtime/onboarding coverage.

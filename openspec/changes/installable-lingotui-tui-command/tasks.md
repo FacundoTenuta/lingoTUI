@@ -9,11 +9,11 @@
 | Chained PRs recommended | Yes |
 | Suggested split | PR 1 setup/status + TUI guidance → PR 2 runtime wiring + docs/smoke |
 | Delivery strategy | ask-on-risk / ask-always |
-| Chain strategy | pending |
+| Chain strategy | stacked-to-main |
 
 Decision needed before apply: Yes
 Chained PRs recommended: Yes
-Chain strategy: pending
+Chain strategy: stacked-to-main
 400-line budget risk: High
 
 ### Suggested Work Units
@@ -37,16 +37,16 @@ Chain strategy: pending
 
 ## Phase 3: Runtime Wiring
 
-- [ ] 3.1 Create `cmd/lingotui/runtime.go` with `buildRuntime(baseDir string)` composing config, credentials, setup service, memory context, OpenAI adapter, ffmpeg recorder, and `tui.Model`.
-- [ ] 3.2 Modify `cmd/lingotui/main.go` so installed `lingotui` runs `tea.NewProgram(model).Run()` and prints startup errors to stderr.
+- [x] 3.1 Create `cmd/lingotui/runtime.go` with `buildRuntime(baseDir string)` composing config, credentials, setup service, memory context, OpenAI adapter, ffmpeg recorder, and `tui.Model`.
+- [x] 3.2 Modify `cmd/lingotui/main.go` so installed `lingotui` runs `tea.NewProgram(model).Run()` and prints startup errors to stderr.
 
 ## Phase 4: Tests
 
 - [x] 4.1 Add `internal/setup/status_test.go` table tests for missing/ready/redacted OpenAI credential status and setup-only audio guidance.
 - [x] 4.2 Update `internal/tui/model_test.go` for startup onboarding, `/help`, and missing setup messages via direct `Model.Update()` assertions.
-- [ ] 4.3 Add `cmd/lingotui/runtime_test.go` smoke/no-side-effect tests with `t.TempDir()`, asserting startup performs no recorder/provider/network calls.
+- [x] 4.3 Add `cmd/lingotui/runtime_test.go` smoke/no-side-effect tests with `t.TempDir()`, asserting startup performs no recorder/provider/network calls.
 - [x] 4.4 Run `gofmt` and `go test ./...`.
 
 ## Phase 5: Documentation
 
-- [ ] 5.1 Update `README.md` with local install, remote `go install github.com/FacundoTenuta/lingoTUI/cmd/lingotui@latest`, PATH, onboarding, `auth.json`, and safety boundaries.
+- [x] 5.1 Update `README.md` with local install, remote `go install github.com/FacundoTenuta/lingoTUI/cmd/lingotui@latest`, PATH, onboarding, `auth.json`, and safety boundaries.

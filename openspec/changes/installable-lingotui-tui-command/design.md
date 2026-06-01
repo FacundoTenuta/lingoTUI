@@ -76,6 +76,10 @@ Secret values are never included; only path plus configured/missing/unknown stat
 
 No data migration required. Existing `config.json` and `auth.json` formats remain. Roll out by documenting local and remote `go install`; rollback is reverting runtime/onboarding files to the current placeholder command.
 
+## Resolved Decisions
+
+- [x] Remote install path: `go install github.com/FacundoTenuta/lingoTUI/cmd/lingotui@latest`.
+
 ## Open Questions
 
-- [ ] Confirm the final GitHub module path for remote `go install github.com/FacundoTenuta/lingoTUI/cmd/lingotui@latest`.
+None.
