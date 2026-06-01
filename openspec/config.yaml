@@ -6,9 +6,9 @@ artifact_store:
   engram: true
 
 context: |
-  Repository currently contains planning documents only: PRD.md and TECHNICAL_DESIGN.md.
+  Repository contains planning documents plus the PR 1 Go module scaffold, app ports, config/credential stores, command parser, fakes, and unit tests.
   Planned stack from TECHNICAL_DESIGN.md: Go, Bubble Tea, Lip Gloss, ffmpeg, provider abstraction, OpenAI first.
-  No implementation module, package manifest, CI, linter, formatter, or test runner is present yet.
+  Go unit tests are available through `go test ./...`; gofmt is the formatter. No CI or linter is present yet.
   Architecture direction: TUI -> command router -> use cases -> ports/interfaces -> adapters.
   Privacy defaults: explicit recording, temporary audio, in-memory transcript/summary by default.
 
@@ -17,14 +17,14 @@ strict_tdd: false
 testing:
   detected: 2026-06-01
   strict_tdd: false
-  reason: No test runner or implementation manifest detected in the repository.
+  reason: Strict TDD remains disabled for this change, but PR 1 created a Go module and unit test harness.
   runner:
-    framework: none
-    command: ""
+    framework: go test
+    command: "go test ./..."
   layers:
     unit:
-      available: false
-      tool: ""
+      available: true
+      tool: go test
     integration:
       available: false
       tool: ""
@@ -42,8 +42,8 @@ testing:
       available: false
       command: ""
     formatter:
-      available: false
-      command: ""
+      available: true
+      command: gofmt
 
 rules:
   proposal:
@@ -61,14 +61,14 @@ rules:
     - Ask before planning chained PRs.
   apply:
     tdd: false
-    test_command: ""
+    test_command: "go test ./..."
     guidance:
       - Once a Go module exists, prefer adding tests for command parsing, use cases, provider seams, and TUI state before feature code.
   verify:
-    test_command: ""
-    build_command: ""
+    test_command: "go test ./..."
+    build_command: "go test ./..."
     coverage_threshold: 0
     guidance:
-      - Until an implementation exists, verification is limited to artifact consistency and design review.
+      - Verify the Go scaffold with gofmt and go test; continue checking SDD artifact consistency.
   archive:
     - Warn before merging destructive or privacy-impacting spec changes.

@@ -1,0 +1,89 @@
+package app
+
+import (
+	"errors"
+	"strings"
+)
+
+var (
+	ErrUnknownCommand         = errors.New("unknown command")
+	ErrMissingCommandArgument = errors.New("missing command argument")
+	ErrUnsupportedAudioSource = errors.New("audio source is not available in this slice")
+)
+
+type CommandKind string
+
+const (
+	CommandEmpty   CommandKind = "empty"
+	CommandConnect CommandKind = "connect"
+	CommandModels  CommandKind = "models"
+	CommandRecord  CommandKind = "record"
+	CommandStop    CommandKind = "stop"
+	CommandAsk     CommandKind = "ask"
+	CommandClear   CommandKind = "clear"
+	CommandHelp    CommandKind = "help"
+)
+
+type Command struct {
+	Kind     CommandKind
+	Raw      string
+	Source   AudioSource
+	Question string
+}
+
+func ParseCommand(input string) (Command, error) {
+	raw := strings.TrimSpace(input)
+	cmd := Command{Kind: CommandEmpty, Raw: raw}
+	if raw == "" {
+		return cmd, nil
+	}
+	parts := strings.Fields(raw)
+	switch parts[0] {
+	case "/connect":
+		cmd.Kind = CommandConnect
+	case "/models":
+		cmd.Kind = CommandModels
+	case "/stop":
+		cmd.Kind = CommandStop
+	case "/clear":
+		cmd.Kind = CommandClear
+	case "/help":
+		cmd.Kind = CommandHelp
+	case "/ask":
+		cmd.Kind = CommandAsk
+		question := strings.TrimSpace(strings.TrimPrefix(raw, "/ask"))
+		if question == "" {
+			return cmd, ErrMissingCommandArgument
+		}
+		cmd.Question = question
+	case "/record":
+		cmd.Kind = CommandRecord
+		if len(parts) < 2 {
+			return cmd, ErrMissingCommandArgument
+		}
+		cmd.Source = AudioSource(parts[1])
+		if cmd.Source != AudioSourceMic {
+			return cmd, ErrUnsupportedAudioSource
+		}
+	default:
+		return cmd, ErrUnknownCommand
+	}
+	return cmd, nil
+}
+
+type HelpEntry struct {
+	Command     string
+	Description string
+}
+
+func HelpEntries() []HelpEntry {
+	return []HelpEntry{
+		{"/connect", "connect to the configured OpenAI API key"},
+		{"/models", "show configured transcription and chat models"},
+		{"/record mic", "start microphone recording"},
+		{"/stop", "stop recording for processing"},
+		{"/ask <question>", "ask about the recent transcript and summary"},
+		{"/clear", "clear in-memory transcript and summary context"},
+		{"/help", "show supported commands"},
+	}
+}
