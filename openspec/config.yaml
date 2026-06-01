@@ -1,0 +1,74 @@
+schema: spec-driven
+project: lingotui
+artifact_store:
+  mode: hybrid
+  openspec: true
+  engram: true
+
+context: |
+  Repository currently contains planning documents only: PRD.md and TECHNICAL_DESIGN.md.
+  Planned stack from TECHNICAL_DESIGN.md: Go, Bubble Tea, Lip Gloss, ffmpeg, provider abstraction, OpenAI first.
+  No implementation module, package manifest, CI, linter, formatter, or test runner is present yet.
+  Architecture direction: TUI -> command router -> use cases -> ports/interfaces -> adapters.
+  Privacy defaults: explicit recording, temporary audio, in-memory transcript/summary by default.
+
+strict_tdd: false
+
+testing:
+  detected: 2026-06-01
+  strict_tdd: false
+  reason: No test runner or implementation manifest detected in the repository.
+  runner:
+    framework: none
+    command: ""
+  layers:
+    unit:
+      available: false
+      tool: ""
+    integration:
+      available: false
+      tool: ""
+    e2e:
+      available: false
+      tool: ""
+  coverage:
+    available: false
+    command: ""
+  quality:
+    linter:
+      available: false
+      command: ""
+    type_checker:
+      available: false
+      command: ""
+    formatter:
+      available: false
+      command: ""
+
+rules:
+  proposal:
+    - Include privacy and provider-cost impact for audio, transcription, and chat changes.
+    - Keep MVP scope focused on macOS microphone capture before system audio.
+  specs:
+    - Use Given/When/Then scenarios.
+    - Use RFC 2119 keywords: MUST, SHALL, SHOULD, MAY.
+    - Separate product behavior from provider-specific implementation details.
+  design:
+    - Preserve the port/adapter boundary: TUI and use cases must not depend on provider or audio implementation details.
+    - Document credential-storage and privacy tradeoffs before implementation.
+  tasks:
+    - Group work into reviewable slices under 400 changed lines when practical.
+    - Ask before planning chained PRs.
+  apply:
+    tdd: false
+    test_command: ""
+    guidance:
+      - Once a Go module exists, prefer adding tests for command parsing, use cases, provider seams, and TUI state before feature code.
+  verify:
+    test_command: ""
+    build_command: ""
+    coverage_threshold: 0
+    guidance:
+      - Until an implementation exists, verification is limited to artifact consistency and design review.
+  archive:
+    - Warn before merging destructive or privacy-impacting spec changes.
