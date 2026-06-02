@@ -151,7 +151,7 @@ func defaultRuntimeOptions() runtimeOptions {
 				return nil, err
 			}
 			session := chatgptauth.SessionManager{Store: store, Refresher: exchanger}
-			client, err := chatgptcodex.NewClient(session)
+			client, err := chatgptcodex.NewClient(session, chatgptcodex.WithAccountIDProvider(session))
 			if err != nil {
 				return nil, err
 			}

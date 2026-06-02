@@ -299,6 +299,123 @@ func TestSessionManagerNilDependenciesReturnSanitizedErrors(t *testing.T) {
 	}
 }
 
+func TestSessionManagerAccountIDReturnsStoredAccountIDWithoutRefresh(t *testing.T) {
+	now := time.Date(2026, 6, 2, 12, 0, 0, 0, time.UTC)
+	store := &sessionStore{credential: sessionCredential("access-token", "refresh-token", now.Add(-time.Hour), "account-id")}
+	refresher := &sessionRefresher{credential: sessionOAuth("new-access-token", "new-refresh-token", now.Add(time.Hour), "new-account-id")}
+	manager := newSessionManager(store, refresher, now)
+
+	accountID, err := manager.AccountID(context.Background())
+	if err != nil {
+		t.Fatalf("AccountID() error = %v", err)
+	}
+	if accountID != "account-id" {
+		t.Fatalf("AccountID() = %q, want stored account id", accountID)
+	}
+	if refresher.refreshes != 0 || store.saves != 0 {
+		t.Fatalf("AccountID() side effects: refreshes=%d saves=%d, want 0/0", refresher.refreshes, store.saves)
+	}
+}
+
+func TestSessionManagerAccountIDReturnsEmptyStoredAccountID(t *testing.T) {
+	now := time.Date(2026, 6, 2, 12, 0, 0, 0, time.UTC)
+	manager := newSessionManager(&sessionStore{credential: sessionCredential("access-token", "refresh-token", now.Add(time.Hour), "")}, &sessionRefresher{}, now)
+
+	accountID, err := manager.AccountID(context.Background())
+	if err != nil {
+		t.Fatalf("AccountID() error = %v", err)
+	}
+	if accountID != "" {
+		t.Fatalf("AccountID() = %q, want empty", accountID)
+	}
+}
+
+func TestSessionManagerAccountIDMissingCredentialReturnsSanitizedError(t *testing.T) {
+	now := time.Date(2026, 6, 2, 12, 0, 0, 0, time.UTC)
+	manager := newSessionManager(&sessionStore{loadErr: errors.New("load failed with access-token refresh-token account-id")}, &sessionRefresher{}, now)
+
+	accountID, err := manager.AccountID(context.Background())
+	if !errors.Is(err, ErrMissingOAuthCredential) {
+		t.Fatalf("AccountID() error = %v, want ErrMissingOAuthCredential", err)
+	}
+	if accountID != "" {
+		t.Fatalf("AccountID() = %q, want empty", accountID)
+	}
+	assertNoSessionSecrets(t, err.Error(), "access-token", "refresh-token", "account-id")
+}
+
+func TestSessionManagerAccountIDRejectsWrongCredentialShape(t *testing.T) {
+	now := time.Date(2026, 6, 2, 12, 0, 0, 0, time.UTC)
+	tests := []struct {
+		name       string
+		credential app.Credential
+	}{
+		{
+			name: "wrong provider",
+			credential: app.Credential{
+				Provider: app.ProviderOpenAI,
+				Kind:     app.CredentialKindOAuth,
+				OAuth:    sessionOAuth("access-token", "refresh-token", now.Add(time.Hour), "account-id"),
+			},
+		},
+		{
+			name: "wrong kind",
+			credential: app.Credential{
+				Provider: app.ProviderChatGPT,
+				Kind:     app.CredentialKindAPIKey,
+				APIKey:   app.Secret{Value: "api-key"},
+			},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			manager := newSessionManager(&sessionStore{credential: tt.credential}, &sessionRefresher{}, now)
+
+			accountID, err := manager.AccountID(context.Background())
+			if !errors.Is(err, ErrMissingOAuthCredential) {
+				t.Fatalf("AccountID() error = %v, want ErrMissingOAuthCredential", err)
+			}
+			if accountID != "" {
+				t.Fatalf("AccountID() = %q, want empty", accountID)
+			}
+			assertNoSessionSecrets(t, err.Error(), "access-token", "refresh-token", "account-id", "api-key")
+		})
+	}
+}
+
+func TestSessionManagerAccountIDNilStoreReturnsMissingCredential(t *testing.T) {
+	accountID, err := SessionManager{}.AccountID(context.Background())
+	if !errors.Is(err, ErrMissingOAuthCredential) {
+		t.Fatalf("AccountID() error = %v, want ErrMissingOAuthCredential", err)
+	}
+	if accountID != "" {
+		t.Fatalf("AccountID() = %q, want empty", accountID)
+	}
+}
+
+func TestSessionManagerAccountIDContextSentinelsPreserved(t *testing.T) {
+	tests := []struct {
+		name string
+		err  error
+	}{
+		{name: "canceled", err: context.Canceled},
+		{name: "deadline", err: context.DeadlineExceeded},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			now := time.Date(2026, 6, 2, 12, 0, 0, 0, time.UTC)
+			manager := newSessionManager(&sessionStore{loadErr: fmt.Errorf("load failed with account-id: %w", tt.err)}, &sessionRefresher{}, now)
+
+			_, err := manager.AccountID(context.Background())
+			if err != tt.err {
+				t.Fatalf("AccountID() error = %v, want exact %v", err, tt.err)
+			}
+		})
+	}
+}
+
 func newSessionManager(store *sessionStore, refresher *sessionRefresher, now time.Time) SessionManager {
 	return SessionManager{
 		Store:     store,

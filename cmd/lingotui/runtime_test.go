@@ -360,6 +360,31 @@ func TestBuildRuntimeUsesLocalWhisperForTranscriptionAndOpenAIForChat(t *testing
 	}
 }
 
+func TestDefaultChatGPTChatConstructionHasNoCredentialSideEffects(t *testing.T) {
+	store := &countingRuntimeCredentialStore{
+		credential: app.Credential{
+			Provider: app.ProviderChatGPT,
+			Kind:     app.CredentialKindOAuth,
+			OAuth: app.OAuthCredential{
+				AccessToken:  app.Secret{Value: "access-token"},
+				RefreshToken: app.Secret{Value: "refresh-token"},
+				AccountID:    "account-id",
+			},
+		},
+	}
+
+	chat, err := defaultRuntimeOptions().newChatGPTChat(store)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if store.credentialLoads != 0 || store.saves != 0 {
+		t.Fatalf("startup credential side effects loads/saves = %d/%d, want 0/0", store.credentialLoads, store.saves)
+	}
+	if chat == nil {
+		t.Fatal("chat = nil, want constructed ChatGPT chat")
+	}
+}
+
 type countingRecorder struct {
 	starts int
 	stops  int
@@ -415,6 +440,7 @@ type countingRuntimeCredentialStore struct {
 	secret          app.Secret
 	credential      app.Credential
 	loads           int
+	saves           int
 	credentialLoads int
 }
 
@@ -428,6 +454,7 @@ func (s *countingRuntimeCredentialStore) Load(context.Context, app.ProviderID) (
 func (s *countingRuntimeCredentialStore) Delete(context.Context, app.ProviderID) error { return nil }
 
 func (s *countingRuntimeCredentialStore) SaveCredential(context.Context, app.Credential) error {
+	s.saves++
 	return nil
 }
 

@@ -83,6 +83,23 @@ func (m SessionManager) AccessToken(ctx context.Context) (app.Secret, error) {
 	return refreshed.AccessToken, nil
 }
 
+func (m SessionManager) AccountID(ctx context.Context) (string, error) {
+	if m.Store == nil {
+		return "", fmt.Errorf("load ChatGPT OAuth credential: %w", ErrMissingOAuthCredential)
+	}
+	credential, err := m.Store.LoadCredential(ctx, app.ProviderChatGPT, app.CredentialKindOAuth)
+	if err != nil {
+		if contextErr := cleanContextError(err); contextErr != nil {
+			return "", contextErr
+		}
+		return "", fmt.Errorf("load ChatGPT OAuth credential: %w", ErrMissingOAuthCredential)
+	}
+	if credential.Provider != app.ProviderChatGPT || credential.Kind != app.CredentialKindOAuth {
+		return "", ErrMissingOAuthCredential
+	}
+	return credential.OAuth.AccountID, nil
+}
+
 func cleanContextError(err error) error {
 	if errors.Is(err, context.Canceled) {
 		return context.Canceled
