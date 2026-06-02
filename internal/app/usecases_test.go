@@ -6,6 +6,7 @@ import (
 	"reflect"
 	"strings"
 	"testing"
+	"time"
 
 	. "github.com/FacundoTenuta/lingoTUI/internal/app"
 	"github.com/FacundoTenuta/lingoTUI/internal/testutil"
@@ -38,43 +39,142 @@ func TestServiceConnectMissingCredentialIsActionable(t *testing.T) {
 	}
 }
 
-func TestServiceConnectChatGPTRuntimeIsNotImplemented(t *testing.T) {
+func TestServiceConnectChecksMixedRuntimeLocallyWithoutProviderCalls(t *testing.T) {
+	credentials := &mixedCredentialStore{credential: Credential{Provider: ProviderChatGPT, Kind: CredentialKindOAuth, OAuth: OAuthCredential{RefreshToken: Secret{Value: "refresh-token"}}}}
 	service := NewService(Dependencies{
-		Config:      &testutil.ConfigStore{Config: Config{Provider: ProviderChatGPT}},
-		Credentials: &testutil.CredentialStore{Secrets: map[ProviderID]Secret{ProviderChatGPT: {Value: "oauth-token"}}},
+		Config: &testutil.ConfigStore{Config: Config{
+			TranscriptionModel: ModelRef{Provider: ProviderLocalWhisper, Name: "ggml-small.bin", Purpose: ModelPurposeTranscription},
+			ChatModel:          ModelRef{Provider: ProviderChatGPT, Name: "configured-chatgpt-model", Purpose: ModelPurposeChat},
+			LocalWhisper:       LocalWhisperConfig{ModelPath: "/models/ggml-small.bin"},
+		}},
+		Credentials: credentials,
 	})
 
 	result, err := service.Connect(context.Background())
-	if !errors.Is(err, ErrNotConfigured) {
-		t.Fatalf("error = %v, want %v", err, ErrNotConfigured)
+	if err != nil {
+		t.Fatal(err)
 	}
-	for _, want := range []string{"ChatGPT Plus/Pro OAuth login is enabled", "ChatGPT/Codex runtime is not implemented yet", "/connect remains OpenAI API-key only"} {
-		if !strings.Contains(err.Error(), want) {
-			t.Fatalf("error missing %q: %v", want, err)
+	for _, want := range []string{"localwhisper/ggml-small.bin", "chatgpt/configured-chatgpt-model", "Provider calls happen only on /stop or /ask"} {
+		if !strings.Contains(result.Message, want) {
+			t.Fatalf("message missing %q: %s", want, result.Message)
 		}
 	}
-	if result.Connected {
-		t.Fatalf("result = %+v, must not connect ChatGPT scaffold", result)
+	if !result.Connected || credentials.loads != 0 || credentials.credentialLoads != 1 {
+		t.Fatalf("result = %+v loads=%d credentialLoads=%d", result, credentials.loads, credentials.credentialLoads)
 	}
 }
 
-func TestServiceConnectLocalWhisperRuntimeIsNotImplemented(t *testing.T) {
+func TestServiceConnectRejectsChatGPTAccessOnlyCredentialWithoutValidExpiry(t *testing.T) {
+	credentials := &mixedCredentialStore{credential: Credential{Provider: ProviderChatGPT, Kind: CredentialKindOAuth, OAuth: OAuthCredential{AccessToken: Secret{Value: "access-token"}}}}
 	service := NewService(Dependencies{
-		Config:      &testutil.ConfigStore{Config: Config{Provider: ProviderLocalWhisper}},
-		Credentials: &testutil.CredentialStore{Secrets: map[ProviderID]Secret{ProviderLocalWhisper: {Value: "local-secret-not-used"}}},
+		Config: &testutil.ConfigStore{Config: Config{
+			TranscriptionModel: ModelRef{Provider: ProviderLocalWhisper, Name: "ggml-small.bin", Purpose: ModelPurposeTranscription},
+			ChatModel:          ModelRef{Provider: ProviderChatGPT, Name: "configured-chatgpt-model", Purpose: ModelPurposeChat},
+			LocalWhisper:       LocalWhisperConfig{ModelPath: "/models/ggml-small.bin"},
+		}},
+		Credentials: credentials,
+	})
+
+	result, err := service.Connect(context.Background())
+	if !errors.Is(err, ErrMissingCredential) {
+		t.Fatalf("error = %v, want %v", err, ErrMissingCredential)
+	}
+	if result.Connected {
+		t.Fatalf("result = %+v, must not connect", result)
+	}
+	if !strings.Contains(err.Error(), "lingotui login chatgpt") {
+		t.Fatalf("error missing ChatGPT login guidance: %v", err)
+	}
+}
+
+func TestServiceConnectAllowsChatGPTAccessOnlyCredentialWithValidExpiry(t *testing.T) {
+	credentials := &mixedCredentialStore{credential: Credential{Provider: ProviderChatGPT, Kind: CredentialKindOAuth, OAuth: OAuthCredential{AccessToken: Secret{Value: "access-token"}, ExpiresAt: time.Now().Add(time.Hour)}}}
+	service := NewService(Dependencies{
+		Config: &testutil.ConfigStore{Config: Config{
+			TranscriptionModel: ModelRef{Provider: ProviderLocalWhisper, Name: "ggml-small.bin", Purpose: ModelPurposeTranscription},
+			ChatModel:          ModelRef{Provider: ProviderChatGPT, Name: "configured-chatgpt-model", Purpose: ModelPurposeChat},
+			LocalWhisper:       LocalWhisperConfig{ModelPath: "/models/ggml-small.bin"},
+		}},
+		Credentials: credentials,
+	})
+
+	result, err := service.Connect(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !result.Connected {
+		t.Fatalf("result = %+v, want connected", result)
+	}
+}
+
+func TestServiceConnectChatGPTRequiresTypedOAuthStore(t *testing.T) {
+	service := NewService(Dependencies{
+		Config: &testutil.ConfigStore{Config: Config{
+			TranscriptionModel: ModelRef{Provider: ProviderLocalWhisper, Name: "ggml-small.bin", Purpose: ModelPurposeTranscription},
+			ChatModel:          ModelRef{Provider: ProviderChatGPT, Name: "configured-chatgpt-model", Purpose: ModelPurposeChat},
+			LocalWhisper:       LocalWhisperConfig{ModelPath: "/models/ggml-small.bin"},
+		}},
+		Credentials: &testutil.CredentialStore{},
 	})
 
 	result, err := service.Connect(context.Background())
 	if !errors.Is(err, ErrNotConfigured) {
 		t.Fatalf("error = %v, want %v", err, ErrNotConfigured)
 	}
-	for _, want := range []string{"localwhisper transcription config is accepted", "runtime is not implemented yet", "/connect remains OpenAI API-key only"} {
+	for _, want := range []string{"typed OAuth credential store", "lingotui login chatgpt"} {
 		if !strings.Contains(err.Error(), want) {
 			t.Fatalf("error missing %q: %v", want, err)
 		}
 	}
 	if result.Connected {
-		t.Fatalf("result = %+v, must not connect localwhisper scaffold", result)
+		t.Fatalf("result = %+v, must not connect", result)
+	}
+}
+
+func TestServiceConnectRejectsUnsupportedRuntimeRefs(t *testing.T) {
+	tests := []struct {
+		name      string
+		configure func(*Config)
+		want      string
+	}{
+		{
+			name: "chatgpt transcription",
+			configure: func(cfg *Config) {
+				cfg.TranscriptionModel = ModelRef{Provider: ProviderChatGPT, Name: "configured-chatgpt-model", Purpose: ModelPurposeTranscription}
+				cfg.ChatModel = ModelRef{Provider: ProviderOpenAI, Name: DefaultChatModel, Purpose: ModelPurposeChat}
+			},
+			want: "ChatGPT/Codex transcription is not supported",
+		},
+		{
+			name: "localwhisper chat",
+			configure: func(cfg *Config) {
+				cfg.TranscriptionModel = ModelRef{Provider: ProviderOpenAI, Name: DefaultTranscriptionModel, Purpose: ModelPurposeTranscription}
+				cfg.ChatModel = ModelRef{Provider: ProviderLocalWhisper, Name: "local-whisper", Purpose: ModelPurposeChat}
+			},
+			want: "localwhisper chat is not supported",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			cfg := DefaultConfig()
+			tt.configure(&cfg)
+			service := NewService(Dependencies{
+				Config:      &testutil.ConfigStore{Config: cfg},
+				Credentials: &testutil.CredentialStore{Secrets: map[ProviderID]Secret{ProviderOpenAI: {Value: "sk-test"}}},
+			})
+
+			result, err := service.Connect(context.Background())
+			if !errors.Is(err, ErrNotConfigured) {
+				t.Fatalf("error = %v, want %v", err, ErrNotConfigured)
+			}
+			if result.Connected {
+				t.Fatalf("result = %+v, must not connect", result)
+			}
+			if !strings.Contains(err.Error(), tt.want) {
+				t.Fatalf("error missing %q: %v", tt.want, err)
+			}
+		})
 	}
 }
 
@@ -90,38 +190,44 @@ func TestServiceModelsUsesDefaultModels(t *testing.T) {
 	}
 }
 
-func TestServiceModelsDoesNotExposeChatGPTScaffoldModels(t *testing.T) {
-	service := NewService(Dependencies{Config: &testutil.ConfigStore{Config: Config{Provider: ProviderChatGPT}}})
+func TestServiceAskMissingChatUsesConfiguredProviderGuidance(t *testing.T) {
+	service := NewService(Dependencies{
+		Config: &testutil.ConfigStore{Config: Config{
+			ChatModel: ModelRef{Provider: ProviderChatGPT, Name: "configured-chatgpt-model", Purpose: ModelPurposeChat},
+		}},
+		Context: &testutil.ContextStore{Has: true, Context: RecentContext{Transcript: Transcript{Text: "hola"}}},
+	})
 
-	result, err := service.Models(context.Background())
-	if err != nil {
-		t.Fatal(err)
+	_, err := service.Ask(context.Background(), Question("what happened?"))
+	if !errors.Is(err, ErrNotConfigured) {
+		t.Fatalf("error = %v, want %v", err, ErrNotConfigured)
 	}
-	if len(result.Models) != 0 {
-		t.Fatalf("models = %+v, want none for ChatGPT scaffold", result.Models)
+	for _, want := range []string{"ChatGPT/Codex chat", "lingotui login chatgpt"} {
+		if !strings.Contains(err.Error(), want) {
+			t.Fatalf("error missing %q: %v", want, err)
+		}
 	}
-	if !strings.Contains(result.Message, "not implemented yet") {
-		t.Fatalf("message = %q, want not implemented guidance", result.Message)
+	if strings.Contains(err.Error(), "login openai") {
+		t.Fatalf("error used OpenAI-only guidance: %v", err)
 	}
 }
 
-func TestServiceModelsDoesNotClaimLocalWhisperRuntimeReady(t *testing.T) {
+func TestServiceModelsShowsMixedConfiguredRefs(t *testing.T) {
 	service := NewService(Dependencies{Config: &testutil.ConfigStore{Config: Config{
-		Provider:           ProviderOpenAI,
 		TranscriptionModel: ModelRef{Provider: ProviderLocalWhisper, Name: "ggml-small.bin", Purpose: ModelPurposeTranscription},
-		ChatModel:          ModelRef{Provider: ProviderOpenAI, Name: DefaultChatModel, Purpose: ModelPurposeChat},
+		ChatModel:          ModelRef{Provider: ProviderChatGPT, Name: "configured-chatgpt-model", Purpose: ModelPurposeChat},
 	}}})
 
 	result, err := service.Models(context.Background())
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(result.Models) != 0 {
-		t.Fatalf("models = %+v, want none for localwhisper scaffold", result.Models)
+	if len(result.Models) != 2 || result.Models[0].Provider != ProviderLocalWhisper || result.Models[1].Provider != ProviderChatGPT {
+		t.Fatalf("models = %+v", result.Models)
 	}
-	for _, want := range []string{"localwhisper", "runtime model listing is not implemented yet"} {
+	for _, want := range []string{"localwhisper/ggml-small.bin", "chatgpt/configured-chatgpt-model", "configured refs", "provider registry"} {
 		if !strings.Contains(result.Message, want) {
-			t.Fatalf("message = %q, want %q", result.Message, want)
+			t.Fatalf("message missing %q: %s", want, result.Message)
 		}
 	}
 }
@@ -249,7 +355,7 @@ func TestServiceHelpIncludesSetupGuidance(t *testing.T) {
 		t.Fatalf("help result = %+v", result)
 	}
 	joined := strings.Join(result.Guidance, "\n")
-	for _, want := range []string{"lingotui login openai", "lingotui login chatgpt", "not implemented yet", "auth.json fallback", "/connect", "/record mic"} {
+	for _, want := range []string{"lingotui login openai", "lingotui login chatgpt", "auth.json fallback", "/connect", "/record mic", "Provider calls happen only on /stop or /ask"} {
 		if !strings.Contains(joined, want) {
 			t.Fatalf("guidance missing %q: %s", want, joined)
 		}
@@ -318,6 +424,42 @@ type recordingProvider struct {
 	answer     Answer
 	languages  []Language
 	question   Question
+}
+
+type mixedCredentialStore struct {
+	Secrets         map[ProviderID]Secret
+	credential      Credential
+	loads           int
+	credentialLoads int
+}
+
+func (s *mixedCredentialStore) Save(_ context.Context, provider ProviderID, secret Secret) error {
+	if s.Secrets == nil {
+		s.Secrets = map[ProviderID]Secret{}
+	}
+	s.Secrets[provider] = secret
+	return nil
+}
+
+func (s *mixedCredentialStore) Load(_ context.Context, provider ProviderID) (Secret, error) {
+	s.loads++
+	return s.Secrets[provider], nil
+}
+
+func (s *mixedCredentialStore) Delete(_ context.Context, provider ProviderID) error {
+	delete(s.Secrets, provider)
+	return nil
+}
+
+func (s *mixedCredentialStore) SaveCredential(context.Context, Credential) error { return nil }
+
+func (s *mixedCredentialStore) LoadCredential(context.Context, ProviderID, CredentialKind) (Credential, error) {
+	s.credentialLoads++
+	return s.credential, nil
+}
+
+func (s *mixedCredentialStore) DeleteCredential(context.Context, ProviderID, CredentialKind) error {
+	return nil
 }
 
 func (p *recordingProvider) Transcribe(context.Context, AudioFile, ModelRef) (Transcript, error) {

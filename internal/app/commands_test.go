@@ -57,7 +57,7 @@ func TestHelpEntriesCoverSupportedCommands(t *testing.T) {
 
 func TestDefaultSetupGuidanceCoversCredentialAndMicrophone(t *testing.T) {
 	guidance := strings.Join(DefaultSetupGuidance(), "\n")
-	for _, want := range []string{"lingotui login openai", "lingotui login chatgpt", "ChatGPT/Codex runtime", "not implemented yet", "macOS Keychain", "auth.json fallback", "/connect", "Microphone", "/record mic"} {
+	for _, want := range []string{"lingotui login openai", "lingotui login chatgpt", "LocalWhisper", "macOS Keychain", "auth.json fallback", "/connect", "Microphone", "/record mic", "Provider calls happen only on /stop or /ask"} {
 		if !strings.Contains(guidance, want) {
 			t.Fatalf("guidance missing %q: %s", want, guidance)
 		}

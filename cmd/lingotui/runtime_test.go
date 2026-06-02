@@ -98,7 +98,7 @@ func TestBuildRuntimeAllowsExplicitRecordOnlyAfterUserCommand(t *testing.T) {
 	}
 }
 
-func TestBuildRuntimeDoesNotWireProviderForChatGPTScaffold(t *testing.T) {
+func TestBuildRuntimeWiresPureLocalWhisperAndChatGPTWithoutOpenAILoad(t *testing.T) {
 	baseDir := t.TempDir()
 	ctx := context.Background()
 	configStore, err := config.NewFileStore(baseDir)
@@ -106,17 +106,34 @@ func TestBuildRuntimeDoesNotWireProviderForChatGPTScaffold(t *testing.T) {
 		t.Fatal(err)
 	}
 	cfg := app.DefaultConfig()
-	cfg.Provider = app.ProviderChatGPT
+	cfg.TranscriptionModel = app.ModelRef{Provider: app.ProviderLocalWhisper, Name: "ggml-small.bin", Purpose: app.ModelPurposeTranscription}
+	cfg.ChatModel = app.ModelRef{Provider: app.ProviderChatGPT, Name: "configured-chatgpt-model", Purpose: app.ModelPurposeChat}
+	cfg.LocalWhisper = app.LocalWhisperConfig{BinaryPath: "/bin/whisper-cli", ModelPath: "/models/ggml-small.bin", Language: "es", ExtraArgs: []string{"--speed-up"}}
 	if err := configStore.Save(ctx, cfg); err != nil {
 		t.Fatal(err)
 	}
-	store := &countingRuntimeCredentialStore{secret: app.Secret{Value: "chatgpt-token"}}
-	providerCalls := 0
+	store := &countingRuntimeCredentialStore{secret: app.Secret{Value: "unused-openai"}}
+	local := &countingProvider{}
+	chat := &countingProvider{}
+	var localConfig app.LocalWhisperConfig
+	chatCalls := 0
+	openAICalls := 0
 
 	_, err = buildRuntimeWithOptions(baseDir, runtimeOptions{
-		newProvider: func(app.Secret) (providerClient, error) {
-			providerCalls++
+		newOpenAIProvider: func(app.Secret) (providerClient, error) {
+			openAICalls++
 			return &countingProvider{}, nil
+		},
+		newLocalWhisperTranscriber: func(config app.LocalWhisperConfig) (app.Transcriber, error) {
+			localConfig = config
+			return local, nil
+		},
+		newChatGPTChat: func(authStore app.AuthCredentialStore) (app.Chat, error) {
+			chatCalls++
+			if authStore != store {
+				t.Fatalf("auth store = %T, want counting store", authStore)
+			}
+			return chat, nil
 		},
 		newRecorder:     func() app.Recorder { return &countingRecorder{} },
 		audioChecker:    &countingAudioChecker{status: setup.ItemStatus{Name: "Microphone", State: setup.StateReady, Message: "ready"}},
@@ -126,14 +143,23 @@ func TestBuildRuntimeDoesNotWireProviderForChatGPTScaffold(t *testing.T) {
 		t.Fatal(err)
 	}
 	if store.loads != 0 {
-		t.Fatalf("credential loads = %d, want 0 for ChatGPT scaffold", store.loads)
+		t.Fatalf("OpenAI credential loads = %d, want 0", store.loads)
 	}
-	if providerCalls != 0 {
-		t.Fatalf("provider constructor calls = %d, want 0 for ChatGPT scaffold", providerCalls)
+	if openAICalls != 0 {
+		t.Fatalf("OpenAI constructor calls = %d, want 0", openAICalls)
+	}
+	if localConfig.ModelPath != "/models/ggml-small.bin" || localConfig.BinaryPath != "/bin/whisper-cli" || localConfig.Language != "es" || len(localConfig.ExtraArgs) != 1 {
+		t.Fatalf("local whisper config = %+v", localConfig)
+	}
+	if chatCalls != 1 {
+		t.Fatalf("ChatGPT chat constructor calls = %d, want 1", chatCalls)
+	}
+	if local.transcribes != 0 || chat.summarizes != 0 || chat.answers != 0 {
+		t.Fatalf("startup provider calls: local=%+v chat=%+v", local, chat)
 	}
 }
 
-func TestBuildRuntimeDoesNotWireProviderForLocalWhisperConfig(t *testing.T) {
+func TestBuildRuntimeKeepsStartupPassiveWhenLocalWhisperModelPathMissing(t *testing.T) {
 	baseDir := t.TempDir()
 	ctx := context.Background()
 	configStore, err := config.NewFileStore(baseDir)
@@ -141,36 +167,124 @@ func TestBuildRuntimeDoesNotWireProviderForLocalWhisperConfig(t *testing.T) {
 		t.Fatal(err)
 	}
 	cfg := app.DefaultConfig()
-	cfg.Provider = app.ProviderLocalWhisper
-	cfg.TranscriptionModel.Provider = app.ProviderLocalWhisper
-	cfg.LocalWhisper.ModelPath = "/models/ggml-base.bin"
+	cfg.TranscriptionModel = app.ModelRef{Provider: app.ProviderLocalWhisper, Name: "ggml-small.bin", Purpose: app.ModelPurposeTranscription}
 	if err := configStore.Save(ctx, cfg); err != nil {
 		t.Fatal(err)
 	}
-	store := &countingRuntimeCredentialStore{secret: app.Secret{Value: "unused-secret"}}
-	providerCalls := 0
+	localCalls := 0
 
-	_, err = buildRuntimeWithOptions(baseDir, runtimeOptions{
-		newProvider: func(app.Secret) (providerClient, error) {
-			providerCalls++
+	model, err := buildRuntimeWithOptions(baseDir, runtimeOptions{
+		newLocalWhisperTranscriber: func(app.LocalWhisperConfig) (app.Transcriber, error) {
+			localCalls++
 			return &countingProvider{}, nil
 		},
 		newRecorder:     func() app.Recorder { return &countingRecorder{} },
 		audioChecker:    &countingAudioChecker{status: setup.ItemStatus{Name: "Microphone", State: setup.StateReady, Message: "ready"}},
-		credentialStore: store,
+		credentialStore: &missingRuntimeCredentialStore{},
 	})
 	if err != nil {
 		t.Fatal(err)
 	}
-	if store.loads != 0 {
-		t.Fatalf("credential loads = %d, want 0 for localwhisper config-only seam", store.loads)
+	if localCalls != 0 {
+		t.Fatalf("localwhisper constructor calls = %d, want 0 while model path is missing", localCalls)
 	}
-	if providerCalls != 0 {
-		t.Fatalf("provider constructor calls = %d, want 0 for localwhisper config-only seam", providerCalls)
+	view := model.View()
+	for _, want := range []string{"Setup needs attention", "missing local_whisper.model_path"} {
+		if !strings.Contains(view, want) {
+			t.Fatalf("view missing %q:\n%s", want, view)
+		}
 	}
 }
 
-func TestBuildRuntimeDoesNotUseOpenAIProviderForLocalWhisperTranscriptionModel(t *testing.T) {
+func TestBuildRuntimeLoadsOpenAIOnlyWhenModelRefUsesOpenAI(t *testing.T) {
+	tests := []struct {
+		name        string
+		configure   func(*app.Config)
+		wantLoads   int
+		wantOpenAI  int
+		wantLocal   int
+		wantChatGPT int
+	}{
+		{
+			name: "openai chat with localwhisper transcription",
+			configure: func(cfg *app.Config) {
+				cfg.TranscriptionModel = app.ModelRef{Provider: app.ProviderLocalWhisper, Name: "ggml-small.bin", Purpose: app.ModelPurposeTranscription}
+				cfg.LocalWhisper.ModelPath = "/models/ggml-small.bin"
+			},
+			wantLoads:  2,
+			wantOpenAI: 1,
+			wantLocal:  1,
+		},
+		{
+			name: "openai transcription with chatgpt chat",
+			configure: func(cfg *app.Config) {
+				cfg.ChatModel = app.ModelRef{Provider: app.ProviderChatGPT, Name: "configured-chatgpt-model", Purpose: app.ModelPurposeChat}
+			},
+			wantLoads:   2,
+			wantOpenAI:  1,
+			wantChatGPT: 1,
+		},
+		{
+			name: "no openai refs",
+			configure: func(cfg *app.Config) {
+				cfg.TranscriptionModel = app.ModelRef{Provider: app.ProviderLocalWhisper, Name: "ggml-small.bin", Purpose: app.ModelPurposeTranscription}
+				cfg.ChatModel = app.ModelRef{Provider: app.ProviderChatGPT, Name: "configured-chatgpt-model", Purpose: app.ModelPurposeChat}
+				cfg.LocalWhisper.ModelPath = "/models/ggml-small.bin"
+			},
+			wantLocal:   1,
+			wantChatGPT: 1,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			baseDir := t.TempDir()
+			ctx := context.Background()
+			configStore, err := config.NewFileStore(baseDir)
+			if err != nil {
+				t.Fatal(err)
+			}
+			cfg := app.DefaultConfig()
+			tt.configure(&cfg)
+			if err := configStore.Save(ctx, cfg); err != nil {
+				t.Fatal(err)
+			}
+			store := &countingRuntimeCredentialStore{secret: app.Secret{Value: "sk-runtime-secret"}}
+			openAICalls := 0
+			localCalls := 0
+			chatGPTCalls := 0
+
+			_, err = buildRuntimeWithOptions(baseDir, runtimeOptions{
+				newOpenAIProvider: func(secret app.Secret) (providerClient, error) {
+					openAICalls++
+					if secret.Value != "sk-runtime-secret" {
+						t.Fatalf("secret = %q, want configured OpenAI secret", secret.Value)
+					}
+					return &countingProvider{}, nil
+				},
+				newLocalWhisperTranscriber: func(app.LocalWhisperConfig) (app.Transcriber, error) {
+					localCalls++
+					return &countingProvider{}, nil
+				},
+				newChatGPTChat: func(app.AuthCredentialStore) (app.Chat, error) {
+					chatGPTCalls++
+					return &countingProvider{}, nil
+				},
+				newRecorder:     func() app.Recorder { return &countingRecorder{} },
+				audioChecker:    &countingAudioChecker{status: setup.ItemStatus{Name: "Microphone", State: setup.StateReady, Message: "ready"}},
+				credentialStore: store,
+			})
+			if err != nil {
+				t.Fatal(err)
+			}
+			if store.loads != tt.wantLoads || openAICalls != tt.wantOpenAI || localCalls != tt.wantLocal || chatGPTCalls != tt.wantChatGPT {
+				t.Fatalf("loads/openai/local/chatgpt = %d/%d/%d/%d, want %d/%d/%d/%d", store.loads, openAICalls, localCalls, chatGPTCalls, tt.wantLoads, tt.wantOpenAI, tt.wantLocal, tt.wantChatGPT)
+			}
+		})
+	}
+}
+
+func TestBuildRuntimeUsesLocalWhisperForTranscriptionAndOpenAIForChat(t *testing.T) {
 	baseDir := t.TempDir()
 	ctx := context.Background()
 	configStore, err := config.NewFileStore(baseDir)
@@ -193,14 +307,21 @@ func TestBuildRuntimeDoesNotUseOpenAIProviderForLocalWhisperTranscriptionModel(t
 		t.Fatal(err)
 	}
 	provider := &countingProvider{}
+	local := &countingProvider{}
 	recorder := &countingRecorder{}
 
 	model, err := buildRuntimeWithOptions(baseDir, runtimeOptions{
-		newProvider: func(secret app.Secret) (providerClient, error) {
+		newOpenAIProvider: func(secret app.Secret) (providerClient, error) {
 			if secret.Value != "sk-runtime-secret" {
 				t.Fatalf("secret = %q, want configured OpenAI secret", secret.Value)
 			}
 			return provider, nil
+		},
+		newLocalWhisperTranscriber: func(config app.LocalWhisperConfig) (app.Transcriber, error) {
+			if config.ModelPath != "/models/ggml-base.bin" {
+				t.Fatalf("local model path = %q", config.ModelPath)
+			}
+			return local, nil
 		},
 		newRecorder:     func() app.Recorder { return recorder },
 		audioChecker:    &countingAudioChecker{status: setup.ItemStatus{Name: "Microphone", State: setup.StateReady, Message: "ready"}},
@@ -222,17 +343,20 @@ func TestBuildRuntimeDoesNotUseOpenAIProviderForLocalWhisperTranscriptionModel(t
 	updated, _ = updated.Update(cmd())
 	model = updated.(tui.Model)
 
+	if local.transcribes != 1 {
+		t.Fatalf("local transcribes = %d, want 1", local.transcribes)
+	}
 	if provider.transcribes != 0 {
 		t.Fatalf("OpenAI transcribes = %d, want 0 when transcription model provider is localwhisper", provider.transcribes)
 	}
 	if recorder.stops != 1 {
 		t.Fatalf("recorder stops = %d, want 1 before processing dependency failure", recorder.stops)
 	}
-	if provider.summarizes != 0 {
-		t.Fatalf("summarizes = %d, want 0 without transcript", provider.summarizes)
+	if provider.summarizes != 1 {
+		t.Fatalf("OpenAI summarizes = %d, want 1", provider.summarizes)
 	}
-	if !strings.Contains(model.View(), "localwhisper transcription runtime is not implemented yet") {
-		t.Fatalf("view missing transcription unavailable guidance:\n%s", model.View())
+	if !strings.Contains(model.View(), "Processed recording") {
+		t.Fatalf("view missing processed recording result:\n%s", model.View())
 	}
 }
 
@@ -288,8 +412,10 @@ func (s *missingRuntimeCredentialStore) Load(context.Context, app.ProviderID) (a
 func (s *missingRuntimeCredentialStore) Delete(context.Context, app.ProviderID) error { return nil }
 
 type countingRuntimeCredentialStore struct {
-	secret app.Secret
-	loads  int
+	secret          app.Secret
+	credential      app.Credential
+	loads           int
+	credentialLoads int
 }
 
 func (s *countingRuntimeCredentialStore) Save(context.Context, app.ProviderID, app.Secret) error {
@@ -300,6 +426,22 @@ func (s *countingRuntimeCredentialStore) Load(context.Context, app.ProviderID) (
 	return s.secret, nil
 }
 func (s *countingRuntimeCredentialStore) Delete(context.Context, app.ProviderID) error { return nil }
+
+func (s *countingRuntimeCredentialStore) SaveCredential(context.Context, app.Credential) error {
+	return nil
+}
+
+func (s *countingRuntimeCredentialStore) LoadCredential(context.Context, app.ProviderID, app.CredentialKind) (app.Credential, error) {
+	s.credentialLoads++
+	if s.credential.Provider != "" {
+		return s.credential, nil
+	}
+	return app.Credential{Provider: app.ProviderChatGPT, Kind: app.CredentialKindOAuth, OAuth: app.OAuthCredential{RefreshToken: app.Secret{Value: "refresh-token"}}}, nil
+}
+
+func (s *countingRuntimeCredentialStore) DeleteCredential(context.Context, app.ProviderID, app.CredentialKind) error {
+	return nil
+}
 
 func (c *countingAudioChecker) Microphone(context.Context) setup.ItemStatus {
 	c.checks++

@@ -29,7 +29,7 @@ func TestModelUpdateShowsModelsAsInfo(t *testing.T) {
 	model := submitModel(t, NewModel(app.NewService(app.Dependencies{})), "/models")
 	view := model.View()
 
-	if model.Status != statusInfo || !strings.Contains(view, "Info: Transcription:") || !strings.Contains(view, "Chat:") {
+	if model.Status != statusInfo || !strings.Contains(view, "Info: Configured transcription:") || !strings.Contains(view, "chat:") {
 		t.Fatalf("expected models info status, status=%v view=%s", model.Status, view)
 	}
 }
@@ -391,7 +391,7 @@ func TestModelUpdateConnectRecordStopAskAndClear(t *testing.T) {
 		}
 	}
 	view := model.View()
-	for _, want := range []string{"Connected to openai", "Recording microphone", "ES: saludo", "A greeting.", "Cleared in-memory"} {
+	for _, want := range []string{"Runtime config is ready", "Recording microphone", "ES: saludo", "A greeting.", "Cleared in-memory"} {
 		if !strings.Contains(view, want) {
 			t.Fatalf("view missing %q: %s", want, view)
 		}

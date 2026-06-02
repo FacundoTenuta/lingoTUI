@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"strings"
+	"time"
 
 	"github.com/FacundoTenuta/lingoTUI/internal/app"
 )
@@ -56,13 +57,12 @@ func (s Service) Status(ctx context.Context) Status {
 		cfg.Provider = s.Provider
 	}
 	cfg = app.NormalizeConfig(cfg)
-	provider := cfg.Provider
 
-	items := []ItemStatus{
-		configStatus(s.ConfigPath),
-		s.credentialStatus(ctx, provider),
-		s.microphoneStatus(ctx),
+	items := []ItemStatus{configStatus(s.ConfigPath)}
+	for _, provider := range credentialProviders(cfg) {
+		items = append(items, s.credentialStatus(ctx, provider))
 	}
+	items = append(items, s.microphoneStatus(ctx))
 	if cfg.TranscriptionModel.Provider == app.ProviderLocalWhisper {
 		items = append(items, localWhisperStatus(cfg.LocalWhisper))
 	}
@@ -73,7 +73,7 @@ func (s Service) Status(ctx context.Context) Status {
 			break
 		}
 	}
-	if provider == app.ProviderChatGPT || provider == app.ProviderLocalWhisper || cfg.TranscriptionModel.Provider == app.ProviderLocalWhisper {
+	if unsupportedRuntime(cfg) {
 		ready = false
 	}
 	return Status{Items: items, Ready: ready}
@@ -106,12 +106,12 @@ func configStatus(path PathProvider) ItemStatus {
 func localWhisperStatus(cfg app.LocalWhisperConfig) ItemStatus {
 	item := ItemStatus{Name: "LocalWhisper model", State: StateMissing}
 	if strings.TrimSpace(cfg.ModelPath) == "" {
-		item.Message = "missing local_whisper.model_path; localwhisper runtime is not implemented yet"
+		item.Message = "missing local_whisper.model_path"
 		return item
 	}
 	item.Path = cfg.ModelPath
-	item.State = StateUnknown
-	item.Message = "configured in local_whisper.model_path; localwhisper runtime is not implemented yet"
+	item.State = StateReady
+	item.Message = "configured in local_whisper.model_path; file is not verified until /stop"
 	return item
 }
 
@@ -120,12 +120,6 @@ func (s Service) credentialStatus(ctx context.Context, provider app.ProviderID) 
 		Name:   credentialName(provider),
 		State:  StateMissing,
 		Secret: true,
-	}
-	if provider == app.ProviderLocalWhisper {
-		item.State = StateUnknown
-		item.Secret = false
-		item.Message = "not required for local transcription; localwhisper runtime is not implemented yet"
-		return item
 	}
 	if s.CredentialPath != nil {
 		item.Path = s.CredentialPath.Path()
@@ -151,16 +145,16 @@ func (s Service) credentialStatus(ctx context.Context, provider app.ProviderID) 
 func chatGPTCredentialStatus(ctx context.Context, item ItemStatus, store CredentialStore) ItemStatus {
 	authStore, ok := store.(app.AuthCredentialStore)
 	if !ok {
-		item.Message = "missing typed OAuth credential store; run lingotui login chatgpt; ChatGPT/Codex runtime is not implemented yet"
+		item.Message = "missing typed OAuth credential store; run lingotui login chatgpt"
 		return item
 	}
 	credential, err := authStore.LoadCredential(ctx, app.ProviderChatGPT, app.CredentialKindOAuth)
-	if err != nil || (credential.OAuth.RefreshToken.Empty() && credential.OAuth.AccessToken.Empty()) {
-		item.Message = "missing; run lingotui login chatgpt; ChatGPT/Codex runtime is not implemented yet"
+	if err != nil || credential.Provider != app.ProviderChatGPT || credential.Kind != app.CredentialKindOAuth || !credential.OAuth.CanProvideAccess(time.Now(), 0) {
+		item.Message = "missing; run lingotui login chatgpt"
 		return item
 	}
 	item.State = StateReady
-	item.Message = "configured via typed OAuth credential ([redacted]); ChatGPT/Codex runtime is not implemented yet"
+	item.Message = "configured via typed OAuth credential ([redacted]); token refresh is deferred until /stop or /ask"
 	return item
 }
 
@@ -176,12 +170,29 @@ func credentialName(provider app.ProviderID) string {
 
 func credentialUnavailableMessage(provider app.ProviderID) string {
 	if provider == app.ProviderChatGPT {
-		return "credential store unavailable; run lingotui login chatgpt; ChatGPT/Codex runtime is not implemented yet"
-	}
-	if provider == app.ProviderLocalWhisper {
-		return "credential store unavailable; localwhisper runtime is not implemented yet"
+		return "credential store unavailable; run lingotui login chatgpt"
 	}
 	return "credential store unavailable; run lingotui login openai or configure auth.json fallback before /connect"
+}
+
+func credentialProviders(cfg app.Config) []app.ProviderID {
+	providers := make([]app.ProviderID, 0, 2)
+	seen := map[app.ProviderID]bool{}
+	for _, provider := range []app.ProviderID{cfg.TranscriptionModel.Provider, cfg.ChatModel.Provider} {
+		if provider != app.ProviderOpenAI && provider != app.ProviderChatGPT {
+			continue
+		}
+		if seen[provider] {
+			continue
+		}
+		seen[provider] = true
+		providers = append(providers, provider)
+	}
+	return providers
+}
+
+func unsupportedRuntime(cfg app.Config) bool {
+	return app.UnsupportedRuntimeReason(cfg) != ""
 }
 
 func (s Service) microphoneStatus(ctx context.Context) ItemStatus {

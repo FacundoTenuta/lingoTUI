@@ -78,7 +78,7 @@ type HelpEntry struct {
 
 func HelpEntries() []HelpEntry {
 	return []HelpEntry{
-		{"/connect", "connect to the configured OpenAI API key; ChatGPT/Codex runtime is not implemented yet"},
+		{"/connect", "check configured runtime credentials and local settings without calling providers"},
 		{"/models", "show configured transcription and chat models"},
 		{"/record mic", "start microphone recording"},
 		{"/stop", "stop recording for processing"},
@@ -91,7 +91,8 @@ func HelpEntries() []HelpEntry {
 func DefaultSetupGuidance() []string {
 	return []string{
 		"OpenAI: run lingotui login openai to save your API key to macOS Keychain, or configure auth.json fallback for development, then run /connect. Secret values are never printed.",
-		"ChatGPT Plus/Pro: run lingotui login chatgpt to complete browser OAuth login. ChatGPT/Codex runtime and /connect support are not implemented yet.",
+		"ChatGPT Plus/Pro: run lingotui login chatgpt to complete browser OAuth login. /connect checks only local OAuth configuration; Provider calls happen only on /stop or /ask.",
+		"LocalWhisper: configure local_whisper.model_path for local transcription. Setup does not verify model files or execute whisper until /stop.",
 		"Microphone: grant macOS microphone permission before /record mic. Recording starts only after that command.",
 	}
 }

@@ -11,6 +11,8 @@ const (
 	ProviderOpenAI       ProviderID = "openai"
 	ProviderChatGPT      ProviderID = "chatgpt"
 	ProviderLocalWhisper ProviderID = "localwhisper"
+
+	DefaultOAuthExpirySkew = 5 * time.Minute
 )
 
 type CredentialKind string
@@ -32,6 +34,19 @@ type OAuthCredential struct {
 	RefreshToken Secret    `json:"refresh_token"`
 	ExpiresAt    time.Time `json:"expires_at"`
 	AccountID    string    `json:"account_id"`
+}
+
+func (c OAuthCredential) CanProvideAccess(now time.Time, skew time.Duration) bool {
+	if !c.RefreshToken.Empty() {
+		return true
+	}
+	if c.AccessToken.Empty() || c.ExpiresAt.IsZero() {
+		return false
+	}
+	if skew == 0 {
+		skew = DefaultOAuthExpirySkew
+	}
+	return c.ExpiresAt.After(now.Add(skew))
 }
 
 func (c Credential) Redacted() Credential {
@@ -114,6 +129,16 @@ type Config struct {
 	ChatModel          ModelRef           `json:"chat_model"`
 	CredentialStorage  string             `json:"credential_storage"`
 	LocalWhisper       LocalWhisperConfig `json:"local_whisper,omitempty"`
+}
+
+func UnsupportedRuntimeReason(cfg Config) string {
+	if cfg.TranscriptionModel.Provider == ProviderChatGPT {
+		return "ChatGPT/Codex transcription is not supported; use localwhisper or openai for transcription"
+	}
+	if cfg.ChatModel.Provider == ProviderLocalWhisper {
+		return "localwhisper chat is not supported; use chatgpt or openai for chat"
+	}
+	return ""
 }
 
 func DefaultConfig() Config {

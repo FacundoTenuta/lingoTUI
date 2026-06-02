@@ -5,6 +5,7 @@ import (
 	"errors"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/FacundoTenuta/lingoTUI/internal/app"
 )
@@ -89,7 +90,7 @@ func TestServiceStatusReportsChatGPTOAuthCredentialReadyWithoutSecrets(t *testin
 
 	status := service.Status(context.Background())
 	if status.Ready {
-		t.Fatalf("status ready = true, want false until ChatGPT runtime is implemented: %+v", status)
+		t.Fatalf("status ready = true, want false because ChatGPT transcription is unsupported: %+v", status)
 	}
 	if status.Items[1].State != StateReady {
 		t.Fatalf("credential state = %s, want ready", status.Items[1].State)
@@ -98,7 +99,7 @@ func TestServiceStatusReportsChatGPTOAuthCredentialReadyWithoutSecrets(t *testin
 		t.Fatalf("loads = %d credentialLoads = %d, want old=0 typed=1", credentials.loads, credentials.credentialLoads)
 	}
 	rendered := strings.Join(RenderLines(status), "\n")
-	for _, want := range []string{"ChatGPT Plus/Pro credentials", "configured via typed OAuth credential ([redacted])", "ChatGPT/Codex runtime is not implemented yet"} {
+	for _, want := range []string{"ChatGPT Plus/Pro credentials", "configured via typed OAuth credential ([redacted])", "token refresh is deferred until /stop or /ask"} {
 		if !strings.Contains(rendered, want) {
 			t.Fatalf("rendered status missing %q:\n%s", want, rendered)
 		}
@@ -127,10 +128,68 @@ func TestServiceStatusReportsChatGPTOAuthCredentialMissingWithoutOldLoad(t *test
 		t.Fatalf("loads = %d credentialLoads = %d, want old=0 typed=1", credentials.loads, credentials.credentialLoads)
 	}
 	rendered := strings.Join(RenderLines(status), "\n")
-	for _, want := range []string{"missing", "lingotui login chatgpt", "ChatGPT/Codex runtime is not implemented yet"} {
+	for _, want := range []string{"missing", "lingotui login chatgpt"} {
 		if !strings.Contains(rendered, want) {
 			t.Fatalf("rendered status missing %q:\n%s", want, rendered)
 		}
+	}
+}
+
+func TestServiceStatusRejectsChatGPTAccessOnlyCredentialWithoutValidExpiry(t *testing.T) {
+	credentials := &fakeAuthCredentialStore{
+		credential: app.Credential{
+			Provider: app.ProviderChatGPT,
+			Kind:     app.CredentialKindOAuth,
+			OAuth:    app.OAuthCredential{AccessToken: app.Secret{Value: "access-token"}},
+		},
+	}
+	service := Service{
+		CredentialPath: fakePath("/tmp/lingotui/auth.json"),
+		Credentials:    credentials,
+		AudioChecker:   &fakeAudioChecker{status: ItemStatus{Name: "Microphone", State: StateReady, Message: "ready"}},
+		Config: app.Config{
+			TranscriptionModel: app.ModelRef{Provider: app.ProviderLocalWhisper, Name: "ggml-small.bin", Purpose: app.ModelPurposeTranscription},
+			ChatModel:          app.ModelRef{Provider: app.ProviderChatGPT, Name: "configured-chatgpt-model", Purpose: app.ModelPurposeChat},
+			LocalWhisper:       app.LocalWhisperConfig{ModelPath: "/models/ggml-small.bin"},
+		},
+	}
+
+	status := service.Status(context.Background())
+	if status.Ready {
+		t.Fatalf("status ready = true, want false for access-only OAuth credential without valid expiry: %+v", status)
+	}
+	rendered := strings.Join(RenderLines(status), "\n")
+	for _, want := range []string{"ChatGPT Plus/Pro credentials", "missing", "lingotui login chatgpt"} {
+		if !strings.Contains(rendered, want) {
+			t.Fatalf("rendered status missing %q:\n%s", want, rendered)
+		}
+	}
+	if strings.Contains(rendered, "access-token") {
+		t.Fatalf("rendered status exposed access token:\n%s", rendered)
+	}
+}
+
+func TestServiceStatusAllowsChatGPTAccessOnlyCredentialWithValidExpiry(t *testing.T) {
+	credentials := &fakeAuthCredentialStore{
+		credential: app.Credential{
+			Provider: app.ProviderChatGPT,
+			Kind:     app.CredentialKindOAuth,
+			OAuth:    app.OAuthCredential{AccessToken: app.Secret{Value: "access-token"}, ExpiresAt: time.Now().Add(time.Hour)},
+		},
+	}
+	service := Service{
+		Credentials:  credentials,
+		AudioChecker: &fakeAudioChecker{status: ItemStatus{Name: "Microphone", State: StateReady, Message: "ready"}},
+		Config: app.Config{
+			TranscriptionModel: app.ModelRef{Provider: app.ProviderLocalWhisper, Name: "ggml-small.bin", Purpose: app.ModelPurposeTranscription},
+			ChatModel:          app.ModelRef{Provider: app.ProviderChatGPT, Name: "configured-chatgpt-model", Purpose: app.ModelPurposeChat},
+			LocalWhisper:       app.LocalWhisperConfig{ModelPath: "/models/ggml-small.bin"},
+		},
+	}
+
+	status := service.Status(context.Background())
+	if !status.Ready {
+		t.Fatalf("status ready = false, want true for valid access-only OAuth credential: %+v", status)
 	}
 }
 
@@ -151,7 +210,7 @@ func TestServiceStatusReportsChatGPTTypedStoreUnsupportedWithoutOldLoad(t *testi
 		t.Fatalf("old credential loads = %d, want 0", credentials.loads)
 	}
 	rendered := strings.Join(RenderLines(status), "\n")
-	for _, want := range []string{"missing typed OAuth credential store", "lingotui login chatgpt", "ChatGPT/Codex runtime is not implemented yet"} {
+	for _, want := range []string{"missing typed OAuth credential store", "lingotui login chatgpt"} {
 		if !strings.Contains(rendered, want) {
 			t.Fatalf("rendered status missing %q:\n%s", want, rendered)
 		}
@@ -184,7 +243,7 @@ func TestServiceStatusReportsMissingLocalWhisperModelPathAsAttention(t *testing.
 		t.Fatalf("loads = %d checks = %d, want one passive status read each", credentials.loads, audio.checks)
 	}
 	rendered := strings.Join(RenderLines(status), "\n")
-	for _, want := range []string{"LocalWhisper model", "missing local_whisper.model_path", "localwhisper runtime is not implemented yet", "Setup needs attention"} {
+	for _, want := range []string{"LocalWhisper model", "missing local_whisper.model_path", "Setup needs attention"} {
 		if !strings.Contains(rendered, want) {
 			t.Fatalf("rendered status missing %q:\n%s", want, rendered)
 		}
@@ -194,7 +253,7 @@ func TestServiceStatusReportsMissingLocalWhisperModelPathAsAttention(t *testing.
 	}
 }
 
-func TestServiceStatusReportsConfiguredLocalWhisperModelPathWithoutReadyClaim(t *testing.T) {
+func TestServiceStatusReportsConfiguredLocalWhisperModelPathReadyWithoutVerifyingFile(t *testing.T) {
 	service := Service{
 		Credentials:  &fakeCredentialStore{secret: app.Secret{Value: "sk-openai"}},
 		AudioChecker: &fakeAudioChecker{status: ItemStatus{Name: "Microphone", State: StateReady, Message: "ready"}},
@@ -207,13 +266,53 @@ func TestServiceStatusReportsConfiguredLocalWhisperModelPathWithoutReadyClaim(t 
 	}
 
 	status := service.Status(context.Background())
-	if status.Ready {
-		t.Fatalf("status ready = true, want false until localwhisper runtime is implemented: %+v", status)
+	if !status.Ready {
+		t.Fatalf("status ready = false, want true for configured OpenAI/localwhisper runtime: %+v", status)
 	}
 	rendered := strings.Join(RenderLines(status), "\n")
-	for _, want := range []string{"LocalWhisper model", "unknown", "configured in local_whisper.model_path", "/models/ggml-small.bin", "localwhisper runtime is not implemented yet"} {
+	for _, want := range []string{"LocalWhisper model", "ready", "configured in local_whisper.model_path", "/models/ggml-small.bin", "file is not verified until /stop"} {
 		if !strings.Contains(rendered, want) {
 			t.Fatalf("rendered status missing %q:\n%s", want, rendered)
+		}
+	}
+}
+
+func TestServiceStatusReportsMixedChatGPTLocalWhisperReadyWithoutOpenAILoad(t *testing.T) {
+	credentials := &fakeAuthCredentialStore{
+		credential: app.Credential{
+			Provider: app.ProviderChatGPT,
+			Kind:     app.CredentialKindOAuth,
+			OAuth:    app.OAuthCredential{RefreshToken: app.Secret{Value: "refresh-token"}},
+		},
+	}
+	service := Service{
+		CredentialPath: fakePath("/tmp/lingotui/auth.json"),
+		Credentials:    credentials,
+		AudioChecker:   &fakeAudioChecker{status: ItemStatus{Name: "Microphone", State: StateReady, Message: "ready"}},
+		Config: app.Config{
+			Provider:           app.ProviderOpenAI,
+			TranscriptionModel: app.ModelRef{Provider: app.ProviderLocalWhisper, Name: "ggml-small.bin", Purpose: app.ModelPurposeTranscription},
+			ChatModel:          app.ModelRef{Provider: app.ProviderChatGPT, Name: "configured-chatgpt-model", Purpose: app.ModelPurposeChat},
+			LocalWhisper:       app.LocalWhisperConfig{ModelPath: "/models/ggml-small.bin"},
+		},
+	}
+
+	status := service.Status(context.Background())
+	if !status.Ready {
+		t.Fatalf("status ready = false, want true for configured localwhisper/chatgpt runtime: %+v", status)
+	}
+	if credentials.loads != 0 || credentials.credentialLoads != 1 {
+		t.Fatalf("loads = %d credentialLoads = %d, want old=0 typed=1", credentials.loads, credentials.credentialLoads)
+	}
+	rendered := strings.Join(RenderLines(status), "\n")
+	for _, want := range []string{"ChatGPT Plus/Pro credentials", "LocalWhisper model", "Setup ready", "token refresh is deferred until /stop or /ask", "file is not verified until /stop"} {
+		if !strings.Contains(rendered, want) {
+			t.Fatalf("rendered status missing %q:\n%s", want, rendered)
+		}
+	}
+	for _, forbid := range []string{"refresh-token", "OpenAI credentials", "not implemented"} {
+		if strings.Contains(rendered, forbid) {
+			t.Fatalf("rendered status contained forbidden %q:\n%s", forbid, rendered)
 		}
 	}
 }

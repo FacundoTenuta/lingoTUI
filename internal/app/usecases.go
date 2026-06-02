@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"strings"
+	"time"
 )
 
 var (
@@ -73,28 +74,43 @@ func (s *Service) HandleInput(ctx context.Context, input string) (Result, error)
 }
 
 func (s *Service) Connect(ctx context.Context) (Result, error) {
-	if s.deps.Credentials == nil {
-		return s.result(CommandConnect, ""), fmt.Errorf("%w: credential store; run lingotui login openai or configure auth.json fallback before /connect", ErrNotConfigured)
-	}
 	cfg, err := s.loadConfig(ctx)
 	if err != nil {
 		return s.result(CommandConnect, ""), err
 	}
-	if cfg.Provider == ProviderChatGPT {
-		return s.result(CommandConnect, ""), fmt.Errorf("%w: ChatGPT Plus/Pro OAuth login is enabled, but ChatGPT/Codex runtime is not implemented yet; /connect remains OpenAI API-key only", ErrNotConfigured)
+	if reason := UnsupportedRuntimeReason(cfg); reason != "" {
+		return s.result(CommandConnect, ""), fmt.Errorf("%w: %s", ErrNotConfigured, reason)
 	}
-	if cfg.Provider == ProviderLocalWhisper {
-		return s.result(CommandConnect, ""), fmt.Errorf("%w: localwhisper transcription config is accepted, but localwhisper runtime is not implemented yet; /connect remains OpenAI API-key only", ErrNotConfigured)
-	}
-	secret, err := s.deps.Credentials.Load(ctx, cfg.Provider)
-	if err != nil || secret.Empty() {
-		if err != nil {
-			return s.result(CommandConnect, ""), fmt.Errorf("%w: run lingotui login openai or configure %s in auth.json fallback before /connect: %v", ErrMissingCredential, cfg.Provider, err)
+	if modelUsesProvider(cfg, ProviderOpenAI) {
+		if s.deps.Credentials == nil {
+			return s.result(CommandConnect, ""), fmt.Errorf("%w: credential store; run lingotui login openai or configure auth.json fallback before /connect", ErrNotConfigured)
 		}
-		return s.result(CommandConnect, ""), fmt.Errorf("%w: run lingotui login openai or configure %s in auth.json fallback before /connect", ErrMissingCredential, cfg.Provider)
+		secret, err := s.deps.Credentials.Load(ctx, ProviderOpenAI)
+		if err != nil || secret.Empty() {
+			if err != nil {
+				return s.result(CommandConnect, ""), fmt.Errorf("%w: run lingotui login openai or configure %s in auth.json fallback before /connect: %v", ErrMissingCredential, ProviderOpenAI, err)
+			}
+			return s.result(CommandConnect, ""), fmt.Errorf("%w: run lingotui login openai or configure %s in auth.json fallback before /connect", ErrMissingCredential, ProviderOpenAI)
+		}
+	}
+	if cfg.ChatModel.Provider == ProviderChatGPT {
+		if s.deps.Credentials == nil {
+			return s.result(CommandConnect, ""), fmt.Errorf("%w: typed OAuth credential store; run lingotui login chatgpt before /connect", ErrNotConfigured)
+		}
+		authStore, ok := s.deps.Credentials.(AuthCredentialStore)
+		if !ok {
+			return s.result(CommandConnect, ""), fmt.Errorf("%w: typed OAuth credential store; run lingotui login chatgpt before /connect", ErrNotConfigured)
+		}
+		credential, err := authStore.LoadCredential(ctx, ProviderChatGPT, CredentialKindOAuth)
+		if err != nil || credential.Provider != ProviderChatGPT || credential.Kind != CredentialKindOAuth || !credential.OAuth.CanProvideAccess(time.Now(), 0) {
+			return s.result(CommandConnect, ""), fmt.Errorf("%w: run lingotui login chatgpt before /connect", ErrMissingCredential)
+		}
+	}
+	if cfg.TranscriptionModel.Provider == ProviderLocalWhisper && strings.TrimSpace(cfg.LocalWhisper.ModelPath) == "" {
+		return s.result(CommandConnect, ""), fmt.Errorf("%w: local_whisper.model_path is required before /connect", ErrNotConfigured)
 	}
 	s.connected = true
-	return s.result(CommandConnect, fmt.Sprintf("Connected to %s with local credentials.", cfg.Provider)), nil
+	return s.result(CommandConnect, fmt.Sprintf("Runtime config is ready: transcription %s/%s; chat %s/%s. Provider calls happen only on /stop or /ask.", cfg.TranscriptionModel.Provider, cfg.TranscriptionModel.Name, cfg.ChatModel.Provider, cfg.ChatModel.Name)), nil
 }
 
 func (s *Service) Models(ctx context.Context) (Result, error) {
@@ -102,14 +118,8 @@ func (s *Service) Models(ctx context.Context) (Result, error) {
 	if err != nil {
 		return s.result(CommandModels, ""), err
 	}
-	if cfg.Provider == ProviderChatGPT {
-		return s.result(CommandModels, "ChatGPT Plus/Pro models are scaffolded but not implemented yet."), nil
-	}
-	if cfg.Provider == ProviderLocalWhisper || cfg.TranscriptionModel.Provider == ProviderLocalWhisper {
-		return s.result(CommandModels, "localwhisper transcription config is accepted, but runtime model listing is not implemented yet."), nil
-	}
 	models := []ModelRef{cfg.TranscriptionModel, cfg.ChatModel}
-	result := s.result(CommandModels, fmt.Sprintf("Transcription: %s; Chat: %s", cfg.TranscriptionModel.Name, cfg.ChatModel.Name))
+	result := s.result(CommandModels, fmt.Sprintf("Configured transcription: %s/%s; chat: %s/%s. Mixed providers use configured refs; provider registry listing is not required.", cfg.TranscriptionModel.Provider, cfg.TranscriptionModel.Name, cfg.ChatModel.Provider, cfg.ChatModel.Name))
 	result.Models = models
 	return result, nil
 }
@@ -173,14 +183,14 @@ func (s *Service) Stop(ctx context.Context) (Result, error) {
 
 func missingTranscriberGuidance(cfg Config) string {
 	if cfg.TranscriptionModel.Provider == ProviderLocalWhisper || cfg.Provider == ProviderLocalWhisper {
-		return "localwhisper transcription runtime is not implemented yet; configure local_whisper for the upcoming runtime slice, but do not expect /stop to transcribe audio yet"
+		return "localwhisper transcriber is not configured; set local_whisper.model_path before processing audio"
 	}
 	return "run lingotui login openai or configure auth.json fallback, then run /connect before processing audio"
 }
 
 func missingChatGuidance(cfg Config) string {
 	if cfg.ChatModel.Provider == ProviderChatGPT || cfg.Provider == ProviderChatGPT {
-		return "ChatGPT/Codex chat runtime is not implemented yet; OAuth login works, but /stop cannot summarize audio with ChatGPT yet"
+		return "ChatGPT/Codex chat is not configured; run lingotui login chatgpt before /ask or /stop"
 	}
 	return "run lingotui login openai or configure auth.json fallback, then run /connect before processing audio"
 }
@@ -193,7 +203,11 @@ func (s *Service) Ask(ctx context.Context, question Question) (Result, error) {
 		return s.result(CommandAsk, ""), fmt.Errorf("%w: context store", ErrNotConfigured)
 	}
 	if s.deps.Chat == nil {
-		return s.result(CommandAsk, ""), fmt.Errorf("%w: chat; run lingotui login openai or configure auth.json fallback, then run /connect before /ask", ErrNotConfigured)
+		cfg, err := s.loadConfig(ctx)
+		if err != nil {
+			return s.result(CommandAsk, ""), err
+		}
+		return s.result(CommandAsk, ""), fmt.Errorf("%w: chat; %s", ErrNotConfigured, missingChatGuidance(cfg))
 	}
 	recent, ok := s.deps.Context.Current()
 	if !ok {
@@ -245,4 +259,8 @@ func (s *Service) loadConfig(ctx context.Context) (Config, error) {
 
 func (s *Service) result(command CommandKind, message string) Result {
 	return Result{Command: command, Message: message, Connected: s.connected, Recording: s.recording}
+}
+
+func modelUsesProvider(cfg Config, provider ProviderID) bool {
+	return cfg.TranscriptionModel.Provider == provider || cfg.ChatModel.Provider == provider
 }

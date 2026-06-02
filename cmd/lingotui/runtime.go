@@ -5,12 +5,16 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 
 	"github.com/FacundoTenuta/lingoTUI/internal/app"
 	"github.com/FacundoTenuta/lingoTUI/internal/audio"
 	"github.com/FacundoTenuta/lingoTUI/internal/config"
 	memory "github.com/FacundoTenuta/lingoTUI/internal/context"
 	"github.com/FacundoTenuta/lingoTUI/internal/credentials"
+	"github.com/FacundoTenuta/lingoTUI/internal/provider/chatgptauth"
+	"github.com/FacundoTenuta/lingoTUI/internal/provider/chatgptcodex"
+	"github.com/FacundoTenuta/lingoTUI/internal/provider/localwhisper"
 	"github.com/FacundoTenuta/lingoTUI/internal/provider/openai"
 	"github.com/FacundoTenuta/lingoTUI/internal/setup"
 	"github.com/FacundoTenuta/lingoTUI/internal/tui"
@@ -22,11 +26,14 @@ type providerClient interface {
 }
 
 type runtimeOptions struct {
-	newProvider     func(app.Secret) (providerClient, error)
-	newRecorder     func() app.Recorder
-	audioChecker    setup.AudioPermissionChecker
-	credentialStore app.CredentialStore
-	credentialPath  setup.PathProvider
+	newProvider                func(app.Secret) (providerClient, error)
+	newOpenAIProvider          func(app.Secret) (providerClient, error)
+	newLocalWhisperTranscriber func(app.LocalWhisperConfig) (app.Transcriber, error)
+	newChatGPTChat             func(app.AuthCredentialStore) (app.Chat, error)
+	newRecorder                func() app.Recorder
+	audioChecker               setup.AudioPermissionChecker
+	credentialStore            app.CredentialStore
+	credentialPath             setup.PathProvider
 }
 
 func buildRuntime(baseDir string) (tui.Model, error) {
@@ -66,24 +73,38 @@ func buildRuntimeWithOptions(baseDir string, options runtimeOptions) (tui.Model,
 	}
 	setupLines := setup.RenderLines(setupService.Status(ctx))
 
-	var provider providerClient
-	if cfg.Provider != app.ProviderChatGPT && cfg.Provider != app.ProviderLocalWhisper {
-		secret, err := credentialStore.Load(ctx, cfg.Provider)
+	var openAIProvider providerClient
+	if usesProvider(cfg, app.ProviderOpenAI) {
+		secret, err := credentialStore.Load(ctx, app.ProviderOpenAI)
 		if err == nil && !secret.Empty() {
-			provider, err = options.newProvider(secret)
+			openAIProvider, err = options.newOpenAIProvider(secret)
 			if err != nil {
-				return tui.Model{}, fmt.Errorf("provider %s: %w", cfg.Provider, err)
+				return tui.Model{}, fmt.Errorf("provider %s: %w", app.ProviderOpenAI, err)
 			}
 		}
 	}
 	var transcriber app.Transcriber
 	var chat app.Chat
-	if provider != nil {
-		if cfg.TranscriptionModel.Provider == cfg.Provider {
-			transcriber = provider
+	if cfg.TranscriptionModel.Provider == app.ProviderOpenAI && openAIProvider != nil {
+		transcriber = openAIProvider
+	}
+	if cfg.ChatModel.Provider == app.ProviderOpenAI && openAIProvider != nil {
+		chat = openAIProvider
+	}
+	if cfg.TranscriptionModel.Provider == app.ProviderLocalWhisper && strings.TrimSpace(cfg.LocalWhisper.ModelPath) != "" {
+		transcriber, err = options.newLocalWhisperTranscriber(cfg.LocalWhisper)
+		if err != nil {
+			return tui.Model{}, fmt.Errorf("provider %s: %w", app.ProviderLocalWhisper, err)
 		}
-		if cfg.ChatModel.Provider == cfg.Provider {
-			chat = provider
+	}
+	if cfg.ChatModel.Provider == app.ProviderChatGPT {
+		authStore, ok := credentialStore.(app.AuthCredentialStore)
+		if !ok {
+			return tui.Model{}, fmt.Errorf("provider %s: typed OAuth credential store is required", app.ProviderChatGPT)
+		}
+		chat, err = options.newChatGPTChat(authStore)
+		if err != nil {
+			return tui.Model{}, fmt.Errorf("provider %s: %w", app.ProviderChatGPT, err)
 		}
 	}
 
@@ -110,8 +131,31 @@ func buildCredentialStore(baseDir string) (*credentials.CompositeStore, error) {
 
 func defaultRuntimeOptions() runtimeOptions {
 	return runtimeOptions{
-		newProvider: func(secret app.Secret) (providerClient, error) {
+		newOpenAIProvider: func(secret app.Secret) (providerClient, error) {
 			return openai.NewClient(secret.Value)
+		},
+		newLocalWhisperTranscriber: func(config app.LocalWhisperConfig) (app.Transcriber, error) {
+			return localwhisper.New(localwhisper.Config{
+				BinaryPath: config.BinaryPath,
+				ModelPath:  config.ModelPath,
+				Language:   config.Language,
+				ExtraArgs:  config.ExtraArgs,
+			})
+		},
+		newChatGPTChat: func(store app.AuthCredentialStore) (app.Chat, error) {
+			exchanger, err := chatgptauth.NewHTTPTokenExchanger(chatgptauth.HTTPTokenExchangerConfig{
+				ClientID:      chatGPTOAuthClientID,
+				TokenEndpoint: chatGPTTokenEndpoint,
+			})
+			if err != nil {
+				return nil, err
+			}
+			session := chatgptauth.SessionManager{Store: store, Refresher: exchanger}
+			client, err := chatgptcodex.NewClient(session)
+			if err != nil {
+				return nil, err
+			}
+			return chatgptcodex.NewChat(client), nil
 		},
 		newRecorder: func() app.Recorder {
 			return audio.NewFFmpegRecorder(
@@ -125,8 +169,21 @@ func defaultRuntimeOptions() runtimeOptions {
 
 func normalizeRuntimeOptions(options runtimeOptions) runtimeOptions {
 	defaults := defaultRuntimeOptions()
+	if options.newOpenAIProvider == nil {
+		if options.newProvider != nil {
+			options.newOpenAIProvider = options.newProvider
+		} else {
+			options.newOpenAIProvider = defaults.newOpenAIProvider
+		}
+	}
 	if options.newProvider == nil {
-		options.newProvider = defaults.newProvider
+		options.newProvider = options.newOpenAIProvider
+	}
+	if options.newLocalWhisperTranscriber == nil {
+		options.newLocalWhisperTranscriber = defaults.newLocalWhisperTranscriber
+	}
+	if options.newChatGPTChat == nil {
+		options.newChatGPTChat = defaults.newChatGPTChat
 	}
 	if options.newRecorder == nil {
 		options.newRecorder = defaults.newRecorder
@@ -140,4 +197,8 @@ func normalizeRuntimeOptions(options runtimeOptions) runtimeOptions {
 		}
 	}
 	return options
+}
+
+func usesProvider(cfg app.Config, provider app.ProviderID) bool {
+	return cfg.TranscriptionModel.Provider == provider || cfg.ChatModel.Provider == provider
 }
