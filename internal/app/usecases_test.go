@@ -263,6 +263,18 @@ func TestServiceRecordStopSummarizeAskAndClear(t *testing.T) {
 	if result.Recording || !contexts.Has || result.Context.Summary[LanguageGerman] == "" {
 		t.Fatalf("stop result = %+v, stored = %+v", result, contexts)
 	}
+	if result.Context.Transcript.Text != "hola mundo" {
+		t.Fatalf("stop transcript = %q", result.Context.Transcript.Text)
+	}
+	wantSummary := Summary{LanguageSpanish: "saludo", LanguageEnglish: "greeting", LanguageGerman: "begrüßung"}
+	for language, want := range wantSummary {
+		if got := result.Context.Summary[language]; got != want {
+			t.Fatalf("stop summary[%s] = %q, want %q", language, got, want)
+		}
+	}
+	if !reflect.DeepEqual(contexts.Context, result.Context) {
+		t.Fatalf("stored context = %+v, want result context %+v", contexts.Context, result.Context)
+	}
 	if !reflect.DeepEqual(provider.languages, SummaryLanguages()) {
 		t.Fatalf("summary languages = %+v", provider.languages)
 	}

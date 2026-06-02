@@ -225,14 +225,27 @@ func formatResult(result app.Result) []string {
 		}
 		return lines
 	}
-	if result.Context.Transcript.Text != "" || len(result.Context.Summary) > 0 {
+	if result.Command == app.CommandStop && (result.Context.Transcript.Text != "" || len(result.Context.Summary) > 0) {
 		lines := []string{result.Message}
 		if result.Context.Transcript.Text != "" {
-			lines = append(lines, "Transcript: "+result.Context.Transcript.Text)
+			lines = appendBlock(lines, "Transcript", result.Context.Transcript.Text)
+		}
+		var summaryBlocks []struct {
+			label string
+			text  string
 		}
 		for _, language := range app.SummaryLanguages() {
 			if text := result.Context.Summary[language]; text != "" {
-				lines = append(lines, fmt.Sprintf("%s: %s", strings.ToUpper(string(language)), text))
+				summaryBlocks = append(summaryBlocks, struct {
+					label string
+					text  string
+				}{label: strings.ToUpper(string(language)), text: text})
+			}
+		}
+		if len(summaryBlocks) > 0 {
+			lines = append(lines, "Summary:")
+			for _, block := range summaryBlocks {
+				lines = appendBlock(lines, "  "+block.label, block.text)
 			}
 		}
 		return lines
@@ -241,4 +254,12 @@ func formatResult(result app.Result) []string {
 		return nil
 	}
 	return []string{result.Message}
+}
+
+func appendBlock(lines []string, label, text string) []string {
+	lines = append(lines, label+":")
+	for _, line := range strings.Split(text, "\n") {
+		lines = append(lines, "  "+line)
+	}
+	return lines
 }

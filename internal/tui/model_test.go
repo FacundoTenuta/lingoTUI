@@ -367,12 +367,12 @@ func TestModelUpdateConnectRecordStopAskAndClear(t *testing.T) {
 	store := memory.NewMemory()
 	service := app.NewService(app.Dependencies{
 		Recorder: &testutil.Recorder{File: app.AudioFile{Path: "mic.wav"}},
-		Transcriber: testutil.Provider{Transcript: app.Transcript{Text: "hola"}, Summary: app.Summary{
+		Transcriber: testutil.Provider{Transcript: app.Transcript{Text: "hola mundo\nsegunda linea"}, Summary: app.Summary{
 			app.LanguageSpanish: "saludo",
 			app.LanguageEnglish: "greeting",
 			app.LanguageGerman:  "begrüßung",
 		}, AnswerText: app.Answer("A greeting.")},
-		Chat: testutil.Provider{Transcript: app.Transcript{Text: "hola"}, Summary: app.Summary{
+		Chat: testutil.Provider{Transcript: app.Transcript{Text: "hola mundo\nsegunda linea"}, Summary: app.Summary{
 			app.LanguageSpanish: "saludo",
 			app.LanguageEnglish: "greeting",
 			app.LanguageGerman:  "begrüßung",
@@ -391,7 +391,33 @@ func TestModelUpdateConnectRecordStopAskAndClear(t *testing.T) {
 		}
 	}
 	view := model.View()
-	for _, want := range []string{"Runtime config is ready", "Recording microphone", "ES: saludo", "A greeting.", "Cleared in-memory"} {
+	for _, want := range []string{"Runtime config is ready", "Recording microphone", "Transcript:", "hola mundo", "segunda linea", "Summary:", "ES:", "saludo", "EN:", "greeting", "DE:", "begrüßung", "A greeting.", "Cleared in-memory"} {
+		if !strings.Contains(view, want) {
+			t.Fatalf("view missing %q: %s", want, view)
+		}
+	}
+	if count := strings.Count(view, "Transcript:"); count != 1 {
+		t.Fatalf("Transcript rendered %d times, want once after stop only: %s", count, view)
+	}
+}
+
+func TestModelStopResultShowsTranscriptAndSummariesInHistory(t *testing.T) {
+	fake := &fakeApp{result: app.Result{
+		Command: app.CommandStop,
+		Message: "Processed recording and updated ES/EN/DE context.",
+		Context: app.RecentContext{
+			Transcript: app.Transcript{Text: "full transcript line one\nfull transcript line two"},
+			Summary: app.Summary{
+				app.LanguageSpanish: "resumen en español\nsegunda línea",
+				app.LanguageEnglish: "summary in English\nsecond line",
+				app.LanguageGerman:  "Zusammenfassung auf Deutsch\nzweite Zeile",
+			},
+		},
+	}}
+	model := submitModel(t, NewModel(fake), "/stop")
+	view := model.View()
+
+	for _, want := range []string{"History", "> /stop", "Transcript:", "full transcript line one", "full transcript line two", "Summary:", "ES:", "resumen en español", "segunda línea", "EN:", "summary in English", "second line", "DE:", "Zusammenfassung auf Deutsch", "zweite Zeile"} {
 		if !strings.Contains(view, want) {
 			t.Fatalf("view missing %q: %s", want, view)
 		}
