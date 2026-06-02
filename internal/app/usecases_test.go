@@ -31,7 +31,7 @@ func TestServiceConnectMissingCredentialIsActionable(t *testing.T) {
 	if !errors.Is(err, ErrMissingCredential) {
 		t.Fatalf("error = %v, want %v", err, ErrMissingCredential)
 	}
-	for _, want := range []string{"auth.json", "/connect"} {
+	for _, want := range []string{"lingotui login", "auth.json fallback", "/connect"} {
 		if !strings.Contains(err.Error(), want) {
 			t.Fatalf("error missing %q: %v", want, err)
 		}
@@ -173,7 +173,7 @@ func TestServiceHelpIncludesSetupGuidance(t *testing.T) {
 		t.Fatalf("help result = %+v", result)
 	}
 	joined := strings.Join(result.Guidance, "\n")
-	for _, want := range []string{"auth.json", "/connect", "/record mic"} {
+	for _, want := range []string{"lingotui login", "auth.json fallback", "/connect", "/record mic"} {
 		if !strings.Contains(joined, want) {
 			t.Fatalf("guidance missing %q: %s", want, joined)
 		}
@@ -189,7 +189,7 @@ func TestServiceNotConfiguredMessagesAreActionable(t *testing.T) {
 		{
 			name: "missing credential store",
 			call: func(s *Service) error { _, err := s.Connect(context.Background()); return err },
-			want: "auth.json",
+			want: "lingotui login",
 		},
 		{
 			name: "missing recorder",

@@ -6,7 +6,7 @@ lingoTUI is a terminal-first language survival assistant. The current MVP opens 
 
 1. Install Go and `ffmpeg`.
 2. Install the command with `./install.sh`, or use the manual commands below.
-3. Create local credentials in `auth.json` before using OpenAI-backed flows.
+3. Run `lingotui login` and paste your OpenAI API key when prompted.
 4. Run `lingotui`; the first screen shows setup status and waits for your command.
 
 ## Install
@@ -51,6 +51,12 @@ After installing, launch the TUI:
 lingotui
 ```
 
+Save your OpenAI API key to macOS Keychain before using OpenAI-backed flows:
+
+```sh
+lingotui login
+```
+
 ## Update
 
 Update an installed `lingotui` binary with:
@@ -82,7 +88,7 @@ On startup, lingoTUI reads local config/credential status and renders setup guid
 
 Use `/help` inside the TUI for supported commands and setup reminders. The first useful sequence is:
 
-1. Add an OpenAI key to `auth.json`.
+1. Run `lingotui login` to save an OpenAI key to macOS Keychain, or configure the `auth.json` fallback for development.
 2. Run `/connect` to mark the configured provider as connected.
 3. Run `/record mic` only when you choose to start microphone recording.
 4. Run `/stop` to stop recording and process the captured audio.
@@ -92,11 +98,13 @@ Use `/help` inside the TUI for supported commands and setup reminders. The first
 | File | Default location | Purpose |
 |------|------------------|---------|
 | `config.json` | `${UserConfigDir}/lingotui/config.json` | Provider/model defaults. |
-| `auth.json` | `${UserConfigDir}/lingotui/auth.json` | Local API-key credentials. |
+| `auth.json` | `${UserConfigDir}/lingotui/auth.json` | Development fallback API-key credentials. |
 
 `UserConfigDir` is provided by the OS. On macOS this is typically `~/Library/Application Support/lingotui/`.
 
-Example `auth.json`:
+macOS Keychain is the primary credential store. `auth.json` is kept as a fallback/development path when Keychain is unavailable or intentionally bypassed.
+
+Example fallback `auth.json`:
 
 ```json
 {
@@ -107,7 +115,7 @@ Example `auth.json`:
 }
 ```
 
-Secrets are loaded from the local credential store and are redacted by the app types. Do not commit `auth.json`.
+Secrets are loaded from Keychain first, then the `auth.json` fallback, and are redacted by the app types. Do not commit `auth.json`.
 
 ## Defaults
 
@@ -116,7 +124,7 @@ Secrets are loaded from the local credential store and are redacted by the app t
 | Provider | `openai` |
 | Transcription model | `gpt-4o-transcribe` |
 | Chat model | `gpt-4o-mini` |
-| Credential storage | local `auth.json` first; macOS Keychain later |
+| Credential storage | macOS Keychain primary; local `auth.json` fallback |
 | Audio source | microphone via ffmpeg; system/both are deferred seams |
 
 ## ffmpeg microphone adapter
@@ -156,7 +164,6 @@ Provider calls may incur OpenAI costs. The adapter avoids logging request header
 
 ## Deferred roadmap seams
 
-- macOS Keychain credential storage.
 - Robust system audio and combined microphone/system capture.
 - Browser-auth research for ChatGPT Plus/Pro if viable.
 - Additional provider registry entries.

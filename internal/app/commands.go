@@ -90,7 +90,7 @@ func HelpEntries() []HelpEntry {
 
 func DefaultSetupGuidance() []string {
 	return []string{
-		"OpenAI: add an API key to auth.json, then run /connect. Secret values are never printed.",
+		"OpenAI: run lingotui login to save your API key to macOS Keychain, or configure auth.json fallback for development, then run /connect. Secret values are never printed.",
 		"Microphone: grant macOS microphone permission before /record mic. Recording starts only after that command.",
 	}
 }

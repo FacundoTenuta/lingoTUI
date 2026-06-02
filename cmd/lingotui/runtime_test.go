@@ -32,8 +32,9 @@ func TestBuildRuntimeStartsWithOnboardingAndNoExternalSideEffects(t *testing.T) 
 			}
 			return provider, nil
 		},
-		newRecorder:  func() app.Recorder { return recorder },
-		audioChecker: audioChecker,
+		newRecorder:     func() app.Recorder { return recorder },
+		audioChecker:    audioChecker,
+		credentialStore: store,
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -63,8 +64,9 @@ func TestBuildRuntimeAllowsExplicitRecordOnlyAfterUserCommand(t *testing.T) {
 	recorder := &countingRecorder{}
 
 	model, err := buildRuntimeWithOptions(baseDir, runtimeOptions{
-		newRecorder:  func() app.Recorder { return recorder },
-		audioChecker: &countingAudioChecker{status: setup.ItemStatus{Name: "Microphone", State: setup.StateReady, Message: "ready"}},
+		newRecorder:     func() app.Recorder { return recorder },
+		audioChecker:    &countingAudioChecker{status: setup.ItemStatus{Name: "Microphone", State: setup.StateReady, Message: "ready"}},
+		credentialStore: &missingRuntimeCredentialStore{},
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -122,6 +124,16 @@ type countingAudioChecker struct {
 	status setup.ItemStatus
 	checks int
 }
+
+type missingRuntimeCredentialStore struct{}
+
+func (s *missingRuntimeCredentialStore) Save(context.Context, app.ProviderID, app.Secret) error {
+	return nil
+}
+func (s *missingRuntimeCredentialStore) Load(context.Context, app.ProviderID) (app.Secret, error) {
+	return app.Secret{}, credentials.ErrSecretNotFound
+}
+func (s *missingRuntimeCredentialStore) Delete(context.Context, app.ProviderID) error { return nil }
 
 func (c *countingAudioChecker) Microphone(context.Context) setup.ItemStatus {
 	c.checks++

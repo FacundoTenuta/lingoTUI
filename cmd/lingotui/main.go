@@ -11,6 +11,7 @@ func main() {
 	os.Exit(runCLI(os.Args[1:], os.Stdout, os.Stderr, cliOptions{
 		launchTUI:  defaultTUILauncher,
 		runCommand: defaultCommandRunner,
+		stdin:      os.Stdin,
 	}))
 }
 

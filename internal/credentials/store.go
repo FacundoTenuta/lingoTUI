@@ -9,6 +9,7 @@ import (
 const FileName = "auth.json"
 
 var ErrSecretNotFound = errors.New("credential not found")
+var ErrStoreUnavailable = errors.New("credential store unavailable")
 
 type Record struct {
 	Provider app.ProviderID `json:"provider"`

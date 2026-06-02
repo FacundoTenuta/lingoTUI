@@ -24,7 +24,7 @@ func TestServiceStatusReportsSetupStatesWithoutSecrets(t *testing.T) {
 			secret:    app.Secret{Value: "sk-secret"},
 			audio:     ItemStatus{Name: "Microphone", State: StateReady, Message: "ready"},
 			wantReady: true,
-			want:      []string{"OpenAI credentials", "configured ([redacted])", "auth.json", "Setup ready"},
+			want:      []string{"OpenAI credentials", "configured via Keychain/auth.json fallback ([redacted])", "auth.json", "Setup ready"},
 			forbid:    []string{"sk-secret"},
 		},
 		{
@@ -32,7 +32,7 @@ func TestServiceStatusReportsSetupStatesWithoutSecrets(t *testing.T) {
 			loadErr:   errors.New("not found"),
 			audio:     ItemStatus{Name: "Microphone", State: StateUnknown, Message: "grant macOS microphone access before /record mic"},
 			wantReady: false,
-			want:      []string{"missing", "auth.json", "/connect", "/record mic", "Nothing records or calls OpenAI"},
+			want:      []string{"missing", "lingotui login", "auth.json fallback", "/connect", "/record mic", "Nothing records or calls OpenAI"},
 		},
 	}
 

@@ -105,16 +105,16 @@ func (s Service) credentialStatus(ctx context.Context, provider app.ProviderID) 
 	}
 	if s.Credentials == nil {
 		item.State = StateUnknown
-		item.Message = "credential store unavailable; configure auth.json before /connect"
+		item.Message = "credential store unavailable; run lingotui login or configure auth.json fallback before /connect"
 		return item
 	}
 	secret, err := s.Credentials.Load(ctx, provider)
 	if err != nil || secret.Empty() {
-		item.Message = "missing; add an OpenAI API key to auth.json before /connect"
+		item.Message = "missing; run lingotui login or configure auth.json fallback before /connect"
 		return item
 	}
 	item.State = StateReady
-	item.Message = "configured ([redacted]); run /connect when ready"
+	item.Message = "configured via Keychain/auth.json fallback ([redacted]); run /connect when ready"
 	return item
 }
 

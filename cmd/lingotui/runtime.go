@@ -22,9 +22,11 @@ type providerClient interface {
 }
 
 type runtimeOptions struct {
-	newProvider  func(app.Secret) (providerClient, error)
-	newRecorder  func() app.Recorder
-	audioChecker setup.AudioPermissionChecker
+	newProvider     func(app.Secret) (providerClient, error)
+	newRecorder     func() app.Recorder
+	audioChecker    setup.AudioPermissionChecker
+	credentialStore app.CredentialStore
+	credentialPath  setup.PathProvider
 }
 
 func buildRuntime(baseDir string) (tui.Model, error) {
@@ -39,9 +41,15 @@ func buildRuntimeWithOptions(baseDir string, options runtimeOptions) (tui.Model,
 	if err != nil {
 		return tui.Model{}, fmt.Errorf("config store: %w", err)
 	}
-	credentialStore, err := credentials.NewFileStore(baseDir)
-	if err != nil {
-		return tui.Model{}, fmt.Errorf("credential store: %w", err)
+	credentialStore := options.credentialStore
+	credentialPath := options.credentialPath
+	if credentialStore == nil {
+		store, err := buildCredentialStore(baseDir)
+		if err != nil {
+			return tui.Model{}, fmt.Errorf("credential store: %w", err)
+		}
+		credentialStore = store
+		credentialPath = store
 	}
 	cfg, err := configStore.Load(ctx)
 	if err != nil {
@@ -50,7 +58,7 @@ func buildRuntimeWithOptions(baseDir string, options runtimeOptions) (tui.Model,
 
 	setupService := setup.Service{
 		ConfigPath:     configStore,
-		CredentialPath: credentialStore,
+		CredentialPath: credentialPath,
 		Credentials:    credentialStore,
 		AudioChecker:   options.audioChecker,
 		Provider:       cfg.Provider,
@@ -78,6 +86,15 @@ func buildRuntimeWithOptions(baseDir string, options runtimeOptions) (tui.Model,
 	return tui.NewModel(service, setupLines...), nil
 }
 
+func buildCredentialStore(baseDir string) (*credentials.CompositeStore, error) {
+	fileStore, err := credentials.NewFileStore(baseDir)
+	if err != nil {
+		return nil, err
+	}
+	path := fmt.Sprintf("macOS Keychain primary; auth.json fallback: %s", fileStore.Path())
+	return credentials.NewCompositeStore(credentials.NewKeychainStore(nil), fileStore, path), nil
+}
+
 func defaultRuntimeOptions() runtimeOptions {
 	return runtimeOptions{
 		newProvider: func(secret app.Secret) (providerClient, error) {
@@ -103,6 +120,11 @@ func normalizeRuntimeOptions(options runtimeOptions) runtimeOptions {
 	}
 	if options.audioChecker == nil {
 		options.audioChecker = defaults.audioChecker
+	}
+	if options.credentialPath == nil {
+		if path, ok := options.credentialStore.(setup.PathProvider); ok {
+			options.credentialPath = path
+		}
 	}
 	return options
 }
