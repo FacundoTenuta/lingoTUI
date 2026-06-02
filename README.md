@@ -1,4 +1,13 @@
-# lingoTUI MVP foundation
+```text
+██╗     ██╗███╗   ██╗ ██████╗  ██████╗ ████████╗██╗   ██╗██╗
+██║     ██║████╗  ██║██╔════╝ ██╔═══██╗╚══██╔══╝██║   ██║██║
+██║     ██║██╔██╗ ██║██║  ███╗██║   ██║   ██║   ██║   ██║██║
+██║     ██║██║╚██╗██║██║   ██║██║   ██║   ██║   ██║   ██║██║
+███████╗██║██║ ╚████║╚██████╔╝╚██████╔╝   ██║   ╚██████╔╝██║
+╚══════╝╚═╝╚═╝  ╚═══╝ ╚═════╝  ╚═════╝    ╚═╝    ╚═════╝ ╚═╝
+```
+
+# LingoTUI
 
 lingoTUI is a terminal-first language survival assistant. The current MVP opens a safe Bubble Tea shell, shows first-run setup guidance, and keeps recording/OpenAI calls behind explicit commands.
 
