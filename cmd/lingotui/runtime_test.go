@@ -248,7 +248,7 @@ func (r *countingRecorder) Start(context.Context, app.AudioSource) error {
 
 func (r *countingRecorder) Stop(context.Context) (app.AudioFile, error) {
 	r.stops++
-	return app.AudioFile{Path: "recording.m4a"}, nil
+	return app.AudioFile{Path: "recording.wav"}, nil
 }
 
 type countingProvider struct {

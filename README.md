@@ -161,7 +161,7 @@ The current live recorder is macOS `avfoundation` first. Set the microphone devi
 LINGOTUI_FFMPEG_MIC_DEVICE=0 go test ./internal/audio -run Integration
 ```
 
-Use `ffmpeg -f avfoundation -list_devices true -i ""` to inspect available macOS devices. The app writes captured audio to a temporary file and returns that path for processing; persistent audio storage is not enabled by default.
+Use `ffmpeg -f avfoundation -list_devices true -i ""` to inspect available macOS devices. The app writes captured audio to a temporary `.wav` file using PCM mono 16 kHz output and returns that path for processing; persistent audio storage is not enabled by default.
 
 ## OpenAI adapter
 

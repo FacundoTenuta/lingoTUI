@@ -4,9 +4,11 @@ package audio_test
 
 import (
 	"context"
+	"io"
 	"os"
 	"os/exec"
 	"runtime"
+	"strings"
 	"testing"
 	"time"
 
@@ -46,5 +48,26 @@ func TestFFmpegRecorderIntegration(t *testing.T) {
 	}
 	if info.Size() == 0 {
 		t.Fatalf("recorded file %s is empty", file.Path)
+	}
+	if !strings.HasSuffix(file.Path, ".wav") {
+		t.Fatalf("recorded file path = %q, want .wav extension", file.Path)
+	}
+	assertWAVHeader(t, file.Path)
+}
+
+func assertWAVHeader(t *testing.T, path string) {
+	t.Helper()
+	file, err := os.Open(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer file.Close()
+
+	header := make([]byte, 12)
+	if _, err := io.ReadFull(file, header); err != nil {
+		t.Fatalf("read WAV header: %v", err)
+	}
+	if string(header[:4]) != "RIFF" || string(header[8:12]) != "WAVE" {
+		t.Fatalf("recorded file header = %q/%q, want RIFF/WAVE", header[:4], header[8:12])
 	}
 }

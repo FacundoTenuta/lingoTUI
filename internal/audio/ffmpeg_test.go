@@ -21,9 +21,9 @@ func TestFFmpegRecorderRejectsDeferredSources(t *testing.T) {
 }
 
 func TestFFmpegArgsUseMacOSAudioInput(t *testing.T) {
-	args := ffmpegArgs("out.m4a", "BlackHole 2ch")
+	args := ffmpegArgs("out.wav", "BlackHole 2ch")
 	joined := stringsJoin(args, " ")
-	if joined != "-hide_banner -loglevel error -f avfoundation -i :BlackHole 2ch -ac 1 -ar 16000 -y out.m4a" {
+	if joined != "-hide_banner -loglevel error -f avfoundation -i :BlackHole 2ch -ac 1 -ar 16000 -c:a pcm_s16le -f wav -y out.wav" {
 		t.Fatalf("args = %q", joined)
 	}
 }

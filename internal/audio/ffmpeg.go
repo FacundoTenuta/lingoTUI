@@ -49,7 +49,7 @@ func (r *FFmpegRecorder) Start(ctx context.Context, source app.AudioSource) erro
 	if err := os.MkdirAll(r.tempDir, 0o700); err != nil {
 		return fmt.Errorf("create temp audio directory: %w", err)
 	}
-	file, err := os.CreateTemp(r.tempDir, "lingotui-*.m4a")
+	file, err := os.CreateTemp(r.tempDir, "lingotui-*.wav")
 	if err != nil {
 		return fmt.Errorf("create temp audio file: %w", err)
 	}
@@ -147,6 +147,8 @@ func ffmpegArgs(outputPath, inputDevice string) []string {
 		"-i", input,
 		"-ac", "1",
 		"-ar", "16000",
+		"-c:a", "pcm_s16le",
+		"-f", "wav",
 		"-y", outputPath,
 	}
 }
