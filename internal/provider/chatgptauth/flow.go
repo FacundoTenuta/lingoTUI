@@ -22,6 +22,10 @@ type CallbackWaiter interface {
 	Wait(context.Context, string) (Callback, error)
 }
 
+type callbackCloser interface {
+	Close() error
+}
+
 type TokenExchanger interface {
 	Exchange(context.Context, TokenRequest) (app.OAuthCredential, error)
 }
@@ -58,6 +62,9 @@ func (f Flow) Login(ctx context.Context, stdout io.Writer, store app.AuthCredent
 	}
 	if store == nil {
 		return fmt.Errorf("credential store unavailable")
+	}
+	if closer, ok := f.Callback.(callbackCloser); ok {
+		defer closer.Close()
 	}
 	if f.Timeout > 0 {
 		var cancel context.CancelFunc
