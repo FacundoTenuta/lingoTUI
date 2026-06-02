@@ -76,7 +76,7 @@ func (t *Transcriber) Transcribe(ctx context.Context, file app.AudioFile, _ app.
 		return app.Transcript{}, errors.New("audio file path is required")
 	}
 
-	args := []string{"-m", t.modelPath, "-f", audioPath, "-l", t.language, "-np", "-nt"}
+	args := []string{"-m", t.modelPath, "-f", audioPath, "-l", t.language, "-nt"}
 	args = append(args, t.extraArgs...)
 
 	stdout, stderr, err := t.runner.Run(ctx, t.binaryPath, args)

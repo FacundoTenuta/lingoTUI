@@ -28,7 +28,7 @@ func TestTranscribeBuildsDefaultArgvAndTrimsStdout(t *testing.T) {
 	if runner.name != "whisper-cli" {
 		t.Fatalf("binary = %q", runner.name)
 	}
-	wantArgs := []string{"-m", "/models/ggml.bin", "-f", "/audio/input.wav", "-l", "auto", "-np", "-nt"}
+	wantArgs := []string{"-m", "/models/ggml.bin", "-f", "/audio/input.wav", "-l", "auto", "-nt"}
 	if !reflect.DeepEqual(runner.args, wantArgs) {
 		t.Fatalf("args = %#v, want %#v", runner.args, wantArgs)
 	}
@@ -84,7 +84,7 @@ func TestTranscribeSupportsCustomBinaryLanguageAndExtraArgs(t *testing.T) {
 	if runner.name != "/bin/custom-whisper" {
 		t.Fatalf("binary = %q", runner.name)
 	}
-	wantArgs := []string{"-m", "/models/ggml.bin", "-f", "/audio/input.wav", "-l", "es", "-np", "-nt", "--threads", "4", "--prompt", "safe value; not a shell"}
+	wantArgs := []string{"-m", "/models/ggml.bin", "-f", "/audio/input.wav", "-l", "es", "-nt", "--threads", "4", "--prompt", "safe value; not a shell"}
 	if !reflect.DeepEqual(runner.args, wantArgs) {
 		t.Fatalf("args = %#v, want %#v", runner.args, wantArgs)
 	}
