@@ -113,6 +113,82 @@ func TestRunCLIUpdateFailureReturnsNonZeroAndWritesStderr(t *testing.T) {
 	}
 }
 
+func TestRunCLIPrintsVersion(t *testing.T) {
+	previous := version
+	version = "test-version"
+	t.Cleanup(func() { version = previous })
+
+	for _, args := range [][]string{{"version"}, {"-v"}, {"--version"}} {
+		t.Run(strings.Join(args, " "), func(t *testing.T) {
+			runner := &recordingCommandRunner{}
+			login := &recordingLoginHandler{}
+			var launched bool
+			var stdout bytes.Buffer
+
+			code := runCLI(args, &stdout, &bytes.Buffer{}, cliOptions{
+				launchTUI: func() error {
+					launched = true
+					return nil
+				},
+				runCommand: runner.run,
+				login:      login.run,
+			})
+
+			if code != 0 {
+				t.Fatalf("code = %d, want 0", code)
+			}
+			if launched {
+				t.Fatal("TUI launcher was called")
+			}
+			if runner.called {
+				t.Fatalf("command runner was called: %+v", runner)
+			}
+			if login.called {
+				t.Fatal("login handler was called")
+			}
+			if got, want := stdout.String(), "lingotui test-version\n"; got != want {
+				t.Fatalf("stdout = %q, want %q", got, want)
+			}
+		})
+	}
+}
+
+func TestRunCLIVersionRejectsExtraArgsWithoutSideEffects(t *testing.T) {
+	for _, args := range [][]string{{"version", "extra"}, {"-v", "extra"}, {"--version", "extra"}} {
+		t.Run(strings.Join(args, " "), func(t *testing.T) {
+			runner := &recordingCommandRunner{}
+			login := &recordingLoginHandler{}
+			var launched bool
+			var stderr bytes.Buffer
+
+			code := runCLI(args, &bytes.Buffer{}, &stderr, cliOptions{
+				launchTUI: func() error {
+					launched = true
+					return nil
+				},
+				runCommand: runner.run,
+				login:      login.run,
+			})
+
+			if code == 0 {
+				t.Fatal("code = 0, want non-zero")
+			}
+			if launched {
+				t.Fatal("TUI launcher was called")
+			}
+			if runner.called {
+				t.Fatalf("command runner was called: %+v", runner)
+			}
+			if login.called {
+				t.Fatal("login handler was called")
+			}
+			if !strings.Contains(stderr.String(), "usage: lingotui [login|update|version|-v|--version]") {
+				t.Fatalf("stderr = %q, want usage", stderr.String())
+			}
+		})
+	}
+}
+
 func TestRunCLILoginCallsHandler(t *testing.T) {
 	runner := &recordingCommandRunner{}
 	login := &recordingLoginHandler{}
@@ -167,7 +243,7 @@ func TestRunCLILoginRejectsExtraArgsWithoutSideEffects(t *testing.T) {
 	if login.called {
 		t.Fatal("login handler was called")
 	}
-	if !strings.Contains(stderr.String(), "usage: lingotui [login|update]") {
+	if !strings.Contains(stderr.String(), "usage: lingotui [login|update|version|-v|--version]") {
 		t.Fatalf("stderr = %q, want usage", stderr.String())
 	}
 }
@@ -210,7 +286,7 @@ func TestRunCLIUnknownCommandReturnsNonZeroWithoutSideEffects(t *testing.T) {
 	if runner.called {
 		t.Fatalf("command runner was called: %+v", runner)
 	}
-	if !strings.Contains(stderr.String(), "usage: lingotui [login|update]") {
+	if !strings.Contains(stderr.String(), "usage: lingotui [login|update|version|-v|--version]") {
 		t.Fatalf("stderr = %q, want usage", stderr.String())
 	}
 }
@@ -237,7 +313,7 @@ func TestRunCLIUpdateRejectsExtraArgsWithoutSideEffects(t *testing.T) {
 	if runner.called {
 		t.Fatalf("command runner was called: %+v", runner)
 	}
-	if !strings.Contains(stderr.String(), "usage: lingotui [login|update]") {
+	if !strings.Contains(stderr.String(), "usage: lingotui [login|update|version|-v|--version]") {
 		t.Fatalf("stderr = %q, want usage", stderr.String())
 	}
 }

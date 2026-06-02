@@ -77,6 +77,16 @@ To update to a specific version, set `LINGOTUI_VERSION`:
 LINGOTUI_VERSION=v0.1.2 lingotui update
 ```
 
+## Version
+
+Print the installed `lingotui` version with any of these forms:
+
+```sh
+lingotui version
+lingotui -v
+lingotui --version
+```
+
 ## First-run onboarding
 
 On startup, lingoTUI reads local config/credential status and renders setup guidance. Startup is intentionally quiet:

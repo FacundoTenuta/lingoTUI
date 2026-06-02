@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"runtime/debug"
 	"strings"
 
 	"github.com/FacundoTenuta/lingoTUI/internal/app"
@@ -14,6 +15,8 @@ import (
 )
 
 var errCredentialStoreUnavailable = errors.New("credential store unavailable")
+
+var version = "dev"
 
 type tuiLauncher func() error
 type commandRunner func(name string, args ...string) error
@@ -38,6 +41,13 @@ func runCLI(args []string, stdout, stderr io.Writer, options cliOptions) int {
 	}
 
 	switch args[0] {
+	case "version", "-v", "--version":
+		if len(args) != 1 {
+			printUsage(stderr)
+			return 1
+		}
+		fmt.Fprintf(stdout, "lingotui %s\n", versionString())
+		return 0
 	case "login":
 		if len(args) != 1 {
 			printUsage(stderr)
@@ -82,7 +92,14 @@ func normalizeCLIOptions(options cliOptions) cliOptions {
 }
 
 func printUsage(w io.Writer) {
-	fmt.Fprintln(w, "usage: lingotui [login|update]")
+	fmt.Fprintln(w, "usage: lingotui [login|update|version|-v|--version]")
+}
+
+func versionString() string {
+	if info, ok := debug.ReadBuildInfo(); ok && info.Main.Version != "" && info.Main.Version != "(devel)" {
+		return info.Main.Version
+	}
+	return version
 }
 
 func defaultLoginHandler(ctx context.Context, stdin io.Reader, stdout io.Writer) error {
