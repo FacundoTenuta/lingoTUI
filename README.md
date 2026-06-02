@@ -19,7 +19,11 @@ From a local checkout, run the installer. By default it installs the latest publ
 ./install.sh
 ```
 
-The installer runs `go install`, detects Go's binary directory, and adds it to your shell profile when it is missing from `PATH`. It also checks for `whisper-cli`; when it is missing and Homebrew is available in an interactive shell, the installer asks whether to install optional `whisper-cpp` support for local transcription. The default answer is no. Non-interactive runs never prompt; install it later with `brew install whisper-cpp` if needed.
+The installer runs `go install`, detects Go's binary directory, and adds it to your shell profile when it is missing from `PATH`. It also checks for `whisper-cli`; when it is missing and Homebrew is available in an interactive shell, the installer asks whether to install optional `whisper-cpp` support for local transcription. The default answer is no.
+
+When `whisper-cli` is available and the shell is interactive, the installer can also optionally complete the localwhisper transcription plus ChatGPT/Codex chat config. The default answer is no. If you opt in, it creates the lingoTUI config directory, downloads `ggml-base.bin` into `models/` when missing, backs up an existing `config.json` to a unique `config.json.bak.*` file, and writes a mixed-runtime config with OpenAI kept as the top-level compatibility provider. It does not store secrets; run `lingotui login chatgpt` separately afterward.
+
+Non-interactive runs never prompt, install `whisper-cpp`, download models, or rewrite config. They print concise manual guidance instead. If `whisper-cli` is still missing after the optional Homebrew step, the installer skips localwhisper + ChatGPT setup because local transcription needs `whisper-cli` on `PATH`.
 
 To install a specific version:
 
@@ -57,7 +61,7 @@ Save your OpenAI API key to macOS Keychain before using OpenAI-backed flows:
 lingotui login openai
 ```
 
-`lingotui login` still defaults to the OpenAI API-key prompt for compatibility. OpenAI remains the default runtime. `lingotui login chatgpt` opens the ChatGPT Plus/Pro browser OAuth flow and saves the resulting OAuth credential. ChatGPT/Codex chat is available only as a manual, experimental opt-in when paired with manual config changes.
+`lingotui login` still defaults to the OpenAI API-key prompt for compatibility. OpenAI remains the default runtime. `lingotui login chatgpt` opens the ChatGPT Plus/Pro browser OAuth flow and saves the resulting OAuth credential. ChatGPT/Codex chat is available only as an experimental opt-in when paired with installer-assisted or manual config changes.
 
 ## Update
 
@@ -179,9 +183,29 @@ LINGOTUI_OPENAI_API_KEY=sk-... LINGOTUI_OPENAI_TRANSCRIBE=1 go test ./internal/p
 
 Provider calls may incur OpenAI costs. The adapter avoids logging request headers and redacts the configured API key from provider error messages.
 
-## Manual localwhisper + ChatGPT opt-in
+## localwhisper + ChatGPT opt-in
 
-The default runtime is still OpenAI. The mixed localwhisper transcription plus ChatGPT/Codex chat runtime is experimental and requires manual opt-in until a `lingotui config` command exists.
+The default runtime is still OpenAI. The mixed localwhisper transcription plus ChatGPT/Codex chat runtime is experimental and requires opt-in until a `lingotui config` command exists.
+
+### Installer-assisted setup
+
+Run `./install.sh` from an interactive shell. After installing lingoTUI and checking optional `whisper-cpp` support, the installer asks whether to configure localwhisper + ChatGPT/Codex now. The default answer is no.
+
+If you answer yes, the installer:
+
+- Creates the config directory: `~/Library/Application Support/lingotui/` on macOS, otherwise `${XDG_CONFIG_HOME}/lingotui/` or `~/.config/lingotui/`.
+- Creates `models/` under that config directory.
+- Downloads `ggml-base.bin` from Hugging Face when the model is missing.
+- Uses `curl` first, then `wget`; if neither exists or the download fails, it leaves `config.json` unchanged and prints the manual URL.
+- Writes `config.json` for localwhisper transcription and ChatGPT/Codex chat, backing up an existing config to a unique `config.json.bak.*` file first.
+
+The installer does not save ChatGPT credentials. After installer-assisted config, run:
+
+```sh
+lingotui login chatgpt
+```
+
+### Manual setup
 
 Quick path:
 
@@ -194,20 +218,22 @@ Example `config.json`:
 
 ```json
 {
+  "provider": "openai",
   "transcription_model": {
     "provider": "localwhisper",
-    "name": "ggml-small.bin",
+    "name": "ggml-base.bin",
     "purpose": "transcription"
   },
   "chat_model": {
     "provider": "chatgpt",
-    "name": "codex",
+    "name": "codex-mini",
     "purpose": "chat"
   },
+  "credential_storage": "file",
   "local_whisper": {
     "binary_path": "/opt/homebrew/bin/whisper-cli",
-    "model_path": "/Users/you/models/ggml-small.bin",
-    "language": "es"
+    "model_path": "/Users/you/Library/Application Support/lingotui/models/ggml-base.bin",
+    "language": "auto"
   }
 }
 ```
@@ -221,7 +247,7 @@ Example `config.json`:
 - Recent transcript and summary context is in memory by default.
 - Audio files are temporary by default.
 - OpenAI API calls are the default and are triggered by explicit user commands.
-- ChatGPT Plus/Pro browser OAuth only runs from `lingotui login chatgpt`; ChatGPT/Codex runtime requests require the manual opt-in config above.
+- ChatGPT Plus/Pro browser OAuth only runs from `lingotui login chatgpt`; ChatGPT/Codex runtime requests require the opt-in config above.
 - Default tests do not make network calls or access audio devices.
 
 ## Deferred roadmap seams

@@ -5,6 +5,8 @@ set -eu
 MODULE_PATH="github.com/FacundoTenuta/lingoTUI/cmd/lingotui"
 VERSION="${LINGOTUI_VERSION:-latest}"
 PACKAGE="${MODULE_PATH}@${VERSION}"
+DEFAULT_WHISPER_MODEL="ggml-base.bin"
+DEFAULT_WHISPER_MODEL_URL="https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-base.bin"
 
 info() {
   printf '%s\n' "==> $*"
@@ -68,6 +70,155 @@ maybe_install_whisper_cpp() {
     fi
   else
     warn "Skipping whisper-cpp install. You can install it later with: brew install whisper-cpp"
+  fi
+}
+
+lingotui_config_dir() {
+  if [ "$(uname -s 2>/dev/null || printf unknown)" = "Darwin" ]; then
+    printf '%s\n' "$HOME/Library/Application Support/lingotui"
+    return 0
+  fi
+
+  if [ -n "${XDG_CONFIG_HOME:-}" ]; then
+    printf '%s\n' "$XDG_CONFIG_HOME/lingotui"
+    return 0
+  fi
+
+  printf '%s\n' "$HOME/.config/lingotui"
+}
+
+download_whisper_model() {
+  model_path="$1"
+  tmp_path="$model_path.tmp.$$"
+
+  if [ -f "$model_path" ]; then
+    info "Whisper model already exists: $model_path"
+    return 0
+  fi
+
+  if command_exists curl; then
+    info "Downloading $DEFAULT_WHISPER_MODEL"
+    if curl -fL --retry 3 -o "$tmp_path" "$DEFAULT_WHISPER_MODEL_URL"; then
+      mv "$tmp_path" "$model_path"
+      return 0
+    fi
+    rm -f "$tmp_path"
+    warn "curl download failed; trying wget if available."
+  fi
+
+  if command_exists wget; then
+    info "Downloading $DEFAULT_WHISPER_MODEL"
+    if wget -O "$tmp_path" "$DEFAULT_WHISPER_MODEL_URL"; then
+      mv "$tmp_path" "$model_path"
+      return 0
+    fi
+  fi
+
+  if ! command_exists curl && ! command_exists wget; then
+    warn "Neither curl nor wget was found; cannot download the Whisper model automatically."
+    warn "Download it manually: $DEFAULT_WHISPER_MODEL_URL"
+    warn "Expected path: $model_path"
+    return 1
+  fi
+
+  rm -f "$tmp_path"
+  warn "Failed to download $DEFAULT_WHISPER_MODEL; leaving config unchanged."
+  warn "Download it manually: $DEFAULT_WHISPER_MODEL_URL"
+  return 1
+}
+
+json_string() {
+  if printf '%s' "$1" | LC_ALL=C grep '[[:cntrl:]]' >/dev/null 2>&1; then
+    fail "Cannot write JSON string containing control characters: $1"
+  fi
+
+  printf '%s' "$1" | sed 's/\\/\\\\/g; s/"/\\"/g'
+}
+
+write_mixed_runtime_config() {
+  config_path="$1"
+  model_path="$2"
+  model_path_json="$(json_string "$model_path")"
+
+  if [ -f "$config_path" ]; then
+    backup_base="$config_path.bak.$(date +%Y%m%d%H%M%S).$$"
+    backup_path="$backup_base"
+    backup_index=0
+    while [ -e "$backup_path" ]; do
+      backup_index=$((backup_index + 1))
+      backup_path="$backup_base.$backup_index"
+    done
+    if cp "$config_path" "$backup_path"; then
+      info "Backed up existing config to $backup_path"
+    else
+      warn "Could not back up existing config; leaving config unchanged."
+      return 1
+    fi
+  fi
+
+  umask 077
+  tmp_config="$config_path.tmp.$$"
+  if {
+    printf '%s\n' '{'
+    printf '%s\n' '  "provider": "openai",'
+    printf '%s\n' '  "transcription_model": {'
+    printf '%s\n' '    "provider": "localwhisper",'
+    printf '%s\n' "    \"name\": \"$DEFAULT_WHISPER_MODEL\","
+    printf '%s\n' '    "purpose": "transcription"'
+    printf '%s\n' '  },'
+    printf '%s\n' '  "chat_model": {'
+    printf '%s\n' '    "provider": "chatgpt",'
+    printf '%s\n' '    "name": "codex-mini",'
+    printf '%s\n' '    "purpose": "chat"'
+    printf '%s\n' '  },'
+    printf '%s\n' '  "credential_storage": "file",'
+    printf '%s\n' '  "local_whisper": {'
+    printf '%s\n' '    "binary_path": "whisper-cli",'
+    printf '%s\n' "    \"model_path\": \"$model_path_json\","
+    printf '%s\n' '    "language": "auto"'
+    printf '%s\n' '  }'
+    printf '%s\n' '}'
+  } >"$tmp_config"; then
+    mv "$tmp_config" "$config_path"
+    info "Wrote localwhisper + ChatGPT config: $config_path"
+    return 0
+  fi
+
+  rm -f "$tmp_config"
+  warn "Could not write config; leaving existing config unchanged."
+  return 1
+}
+
+maybe_configure_localwhisper_chatgpt() {
+  if ! command_exists whisper-cli; then
+    warn "Skipping localwhisper + ChatGPT setup because whisper-cli is not available on PATH."
+    warn "Install whisper-cpp first, then configure lingoTUI manually or rerun this installer."
+    return 0
+  fi
+
+  if ! is_interactive; then
+    warn "Non-interactive shell detected; skipping optional localwhisper + ChatGPT setup."
+    warn "Manual setup: download $DEFAULT_WHISPER_MODEL_URL, write config.json, then run: lingotui login chatgpt"
+    return 0
+  fi
+
+  if ! prompt_yes_no "Configure localwhisper transcription + ChatGPT/Codex chat now?"; then
+    info "Skipping optional localwhisper + ChatGPT setup"
+    return 0
+  fi
+
+  config_dir="$(lingotui_config_dir)"
+  model_dir="$config_dir/models"
+  config_path="$config_dir/config.json"
+  model_path="$model_dir/$DEFAULT_WHISPER_MODEL"
+
+  mkdir -p "$model_dir"
+  if ! download_whisper_model "$model_path"; then
+    return 0
+  fi
+
+  if write_mixed_runtime_config "$config_path" "$model_path"; then
+    info "Run next: lingotui login chatgpt"
   fi
 }
 
@@ -171,4 +322,5 @@ esac
 
 info "Installed: $binary"
 maybe_install_whisper_cpp
+maybe_configure_localwhisper_chatgpt
 info "Run: lingotui"
