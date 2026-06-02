@@ -7,6 +7,17 @@ type Recorder interface {
 	Stop(context.Context) (AudioFile, error)
 }
 
+type ChunkRecorder interface {
+	Start(context.Context, AudioSource) error
+	NextChunk(context.Context) (AudioFile, bool, error)
+	Stop(context.Context) ([]AudioFile, error)
+}
+
+type ChunkCleaner interface {
+	CleanupChunk(context.Context, AudioFile) error
+	Cleanup(context.Context) error
+}
+
 type Transcriber interface {
 	Transcribe(context.Context, AudioFile, ModelRef) (Transcript, error)
 }

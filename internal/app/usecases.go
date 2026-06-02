@@ -14,10 +14,12 @@ var (
 	ErrNotConfigured     = errors.New("dependency is not configured")
 	ErrAlreadyRecording  = errors.New("recording already active")
 	ErrNotRecording      = errors.New("no active recording")
+	ErrRealtimeInactive  = errors.New("realtime translation is not active")
 )
 
 type Dependencies struct {
 	Recorder      Recorder
+	ChunkRecorder ChunkRecorder
 	Transcriber   Transcriber
 	Chat          Chat
 	Config        ConfigStore
@@ -30,6 +32,8 @@ type Service struct {
 	deps      Dependencies
 	connected bool
 	recording bool
+	realtime  bool
+	chunks    []RealtimeChunk
 }
 
 type Result struct {
@@ -43,6 +47,8 @@ type Result struct {
 	Guidance     []string
 	Connected    bool
 	Recording    bool
+	Realtime     bool
+	Chunks       []RealtimeChunk
 }
 
 func NewService(deps Dependencies) *Service { return &Service{deps: deps} }
@@ -50,7 +56,7 @@ func NewService(deps Dependencies) *Service { return &Service{deps: deps} }
 func (s *Service) HandleInput(ctx context.Context, input string) (Result, error) {
 	cmd, err := ParseCommand(input)
 	if err != nil {
-		return Result{Command: cmd.Kind, Connected: s.connected, Recording: s.recording}, err
+		return Result{Command: cmd.Kind, Connected: s.connected, Recording: s.recording, Realtime: s.realtime}, err
 	}
 	switch cmd.Kind {
 	case CommandEmpty:
@@ -67,6 +73,17 @@ func (s *Service) HandleInput(ctx context.Context, input string) (Result, error)
 		return s.Ask(ctx, Question(cmd.Question))
 	case CommandTranslate:
 		return s.Translate(ctx, cmd.Text)
+	case CommandRealtime:
+		switch cmd.RealtimeAction {
+		case RealtimeActionStart:
+			return s.RealtimeStart(ctx, cmd.Source)
+		case RealtimeActionChunk:
+			return s.RealtimeChunk(ctx)
+		case RealtimeActionStop:
+			return s.RealtimeStop(ctx)
+		default:
+			return s.result(cmd.Kind, ""), ErrUnsupportedRealtime
+		}
 	case CommandClear:
 		return s.Clear(ctx)
 	case CommandHelp:
@@ -113,7 +130,7 @@ func (s *Service) Connect(ctx context.Context) (Result, error) {
 		return s.result(CommandConnect, ""), fmt.Errorf("%w: local_whisper.model_path is required before /connect", ErrNotConfigured)
 	}
 	s.connected = true
-	return s.result(CommandConnect, fmt.Sprintf("Runtime config is ready: transcription %s/%s; chat %s/%s. Provider calls happen only on /stop, /ask, or /translate.", cfg.TranscriptionModel.Provider, cfg.TranscriptionModel.Name, cfg.ChatModel.Provider, cfg.ChatModel.Name)), nil
+	return s.result(CommandConnect, fmt.Sprintf("Runtime config is ready: transcription %s/%s; chat %s/%s. Provider calls happen only on /stop, /ask, /translate, or realtime chunks.", cfg.TranscriptionModel.Provider, cfg.TranscriptionModel.Name, cfg.ChatModel.Provider, cfg.ChatModel.Name)), nil
 }
 
 func (s *Service) Models(ctx context.Context) (Result, error) {
@@ -134,6 +151,9 @@ func (s *Service) Record(ctx context.Context, source AudioSource) (Result, error
 	if s.recording {
 		return s.result(CommandRecord, ""), fmt.Errorf("%w: run /stop before starting another recording", ErrAlreadyRecording)
 	}
+	if s.realtime {
+		return s.result(CommandRecord, ""), fmt.Errorf("%w: run /realtime stop before /record mic", ErrAlreadyRecording)
+	}
 	if s.deps.Recorder == nil {
 		return s.result(CommandRecord, ""), fmt.Errorf("%w: recorder; /record mic is unavailable until microphone recording is configured", ErrNotConfigured)
 	}
@@ -142,6 +162,145 @@ func (s *Service) Record(ctx context.Context, source AudioSource) (Result, error
 	}
 	s.recording = true
 	return s.result(CommandRecord, "Recording microphone audio. Run /stop to process it."), nil
+}
+
+func (s *Service) RealtimeStart(ctx context.Context, source AudioSource) (Result, error) {
+	if source != AudioSourceMic {
+		return s.result(CommandRealtime, ""), ErrUnsupportedAudioSource
+	}
+	if s.recording {
+		return s.result(CommandRealtime, ""), fmt.Errorf("%w: run /stop before starting realtime translation", ErrAlreadyRecording)
+	}
+	if s.realtime {
+		return s.result(CommandRealtime, ""), fmt.Errorf("%w: run /realtime stop before starting another realtime session", ErrAlreadyRecording)
+	}
+	if s.deps.ChunkRecorder == nil {
+		return s.result(CommandRealtime, ""), fmt.Errorf("%w: chunk recorder; realtime translation is not wired in this build", ErrNotConfigured)
+	}
+	if err := s.deps.ChunkRecorder.Start(ctx, source); err != nil {
+		return s.result(CommandRealtime, ""), fmt.Errorf("start realtime recording: %w", err)
+	}
+	s.realtime = true
+	s.chunks = nil
+	return s.result(CommandRealtime, "Realtime translation started. Chunks will be translated on realtime ticks."), nil
+}
+
+func (s *Service) RealtimeChunk(ctx context.Context) (Result, error) {
+	if !s.realtime {
+		return s.result(CommandRealtime, ""), fmt.Errorf("%w: run /realtime start mic first", ErrRealtimeInactive)
+	}
+	if s.deps.ChunkRecorder == nil {
+		return s.result(CommandRealtime, ""), fmt.Errorf("%w: chunk recorder", ErrNotConfigured)
+	}
+	file, ok, err := s.deps.ChunkRecorder.NextChunk(ctx)
+	if err != nil {
+		return s.result(CommandRealtime, ""), fmt.Errorf("read realtime chunk: %w", err)
+	}
+	if !ok {
+		result := s.result(CommandRealtime, "No realtime chunk available yet.")
+		result.Chunks = append([]RealtimeChunk(nil), s.chunks...)
+		return result, nil
+	}
+	return s.processRealtimeChunk(ctx, file, "Translated realtime chunk.")
+}
+
+func (s *Service) RealtimeStop(ctx context.Context) (Result, error) {
+	if !s.realtime {
+		return s.result(CommandRealtime, ""), fmt.Errorf("%w: run /realtime start mic first", ErrRealtimeInactive)
+	}
+	if s.deps.ChunkRecorder == nil {
+		return s.result(CommandRealtime, ""), fmt.Errorf("%w: chunk recorder", ErrNotConfigured)
+	}
+	files, err := s.deps.ChunkRecorder.Stop(ctx)
+	s.realtime = false
+	if err != nil {
+		s.cleanupRealtimeSession(ctx)
+		return s.result(CommandRealtime, ""), fmt.Errorf("stop realtime recording: %w", err)
+	}
+	if len(files) > 0 {
+		result, err := s.processRealtimeChunks(ctx, files, "Stopped realtime translation and translated final chunks.")
+		if err == nil {
+			s.storeRealtimeContext()
+		}
+		s.cleanupRealtimeSession(ctx)
+		return result, err
+	}
+	result := s.result(CommandRealtime, "Stopped realtime translation.")
+	result.Chunks = append([]RealtimeChunk(nil), s.chunks...)
+	s.storeRealtimeContext()
+	s.cleanupRealtimeSession(ctx)
+	return result, nil
+}
+
+func (s *Service) processRealtimeChunk(ctx context.Context, file AudioFile, message string) (Result, error) {
+	result, err := s.processRealtimeChunks(ctx, []AudioFile{file}, message)
+	s.cleanupRealtimeChunk(ctx, file)
+	return result, err
+}
+
+func (s *Service) processRealtimeChunks(ctx context.Context, files []AudioFile, message string) (Result, error) {
+	cfg, err := s.loadConfig(ctx)
+	if err != nil {
+		return s.result(CommandRealtime, ""), err
+	}
+	if s.deps.Transcriber == nil {
+		return s.result(CommandRealtime, ""), fmt.Errorf("%w: transcriber; %s", ErrNotConfigured, missingTranscriberGuidance(cfg))
+	}
+	if s.deps.Chat == nil {
+		return s.result(CommandRealtime, ""), fmt.Errorf("%w: chat; %s", ErrNotConfigured, missingChatGuidance(cfg))
+	}
+	for _, file := range files {
+		transcript, err := s.deps.Transcriber.Transcribe(ctx, file, cfg.TranscriptionModel)
+		if err != nil {
+			return s.result(CommandRealtime, ""), fmt.Errorf("transcribe realtime chunk: %w", err)
+		}
+		translations, err := s.deps.Chat.Translate(ctx, transcript.Text, SummaryLanguages(), cfg.ChatModel)
+		if err != nil {
+			return s.result(CommandRealtime, ""), fmt.Errorf("translate realtime chunk: %w", err)
+		}
+		s.chunks = append(s.chunks, RealtimeChunk{Transcript: transcript, Translations: translations})
+	}
+	result := s.result(CommandRealtime, message)
+	result.Chunks = append([]RealtimeChunk(nil), s.chunks...)
+	return result, nil
+}
+
+func (s *Service) cleanupRealtimeChunk(ctx context.Context, file AudioFile) {
+	cleaner, ok := s.deps.ChunkRecorder.(ChunkCleaner)
+	if !ok {
+		return
+	}
+	_ = cleaner.CleanupChunk(ctx, file)
+}
+
+func (s *Service) cleanupRealtimeSession(ctx context.Context) {
+	cleaner, ok := s.deps.ChunkRecorder.(ChunkCleaner)
+	if !ok {
+		return
+	}
+	_ = cleaner.Cleanup(ctx)
+}
+
+func (s *Service) storeRealtimeContext() {
+	if s.deps.Context == nil || len(s.chunks) == 0 {
+		return
+	}
+	var transcriptParts []string
+	translations := Summary{}
+	for _, chunk := range s.chunks {
+		if text := strings.TrimSpace(chunk.Transcript.Text); text != "" {
+			transcriptParts = append(transcriptParts, text)
+		}
+		for _, language := range SummaryLanguages() {
+			if text := strings.TrimSpace(chunk.Translations[language]); text != "" {
+				if translations[language] != "" {
+					translations[language] += "\n"
+				}
+				translations[language] += text
+			}
+		}
+	}
+	s.deps.Context.Replace(RecentContext{Transcript: Transcript{Text: strings.Join(transcriptParts, "\n")}, Summary: translations})
 }
 
 func (s *Service) Stop(ctx context.Context) (Result, error) {
@@ -286,7 +445,7 @@ func (s *Service) loadConfig(ctx context.Context) (Config, error) {
 }
 
 func (s *Service) result(command CommandKind, message string) Result {
-	return Result{Command: command, Message: message, Connected: s.connected, Recording: s.recording}
+	return Result{Command: command, Message: message, Connected: s.connected, Recording: s.recording, Realtime: s.realtime}
 }
 
 func modelUsesProvider(cfg Config, provider ProviderID) bool {

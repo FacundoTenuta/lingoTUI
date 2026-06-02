@@ -12,8 +12,16 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	switch msg := msg.(type) {
 	case SubmitMsg:
 		return m.submit(msg.Input)
+	case RealtimeTickMsg:
+		if !m.realtime || m.Status == statusLoading {
+			if m.realtime && m.Status == statusLoading {
+				m.droppedRealtimeTick = true
+			}
+			return m, nil
+		}
+		return m.submit("/realtime chunk")
 	case commandFinishedMsg:
-		return m.finishCommand(msg), nil
+		return m.finishCommand(msg)
 	case tea.KeyMsg:
 		switch msg.String() {
 		case "ctrl+c":
@@ -148,25 +156,53 @@ func (m Model) submit(input string) (Model, tea.Cmd) {
 	}
 }
 
-func (m Model) finishCommand(msg commandFinishedMsg) Model {
+func (m Model) finishCommand(msg commandFinishedMsg) (Model, tea.Cmd) {
+	m.realtime = msg.Result.Realtime
 	if msg.Err != nil {
 		m.Err = msg.Err
 		m.Status = statusError
 		m.StatusMessage = "Fix the issue below, then try again or run /help."
 		m.Messages = append(m.Messages, "Error: "+cleanErrorMessage(msg.Err.Error()))
-		return m
+		cmd := m.nextDroppedRealtimeTick(msg)
+		return m, cmd
 	}
 	m.Err = nil
+	m.realtime = msg.Result.Realtime
 	m.Status = statusForResult(msg.Result)
 	m.StatusMessage = statusMessageForResult(msg.Result)
 	for _, line := range formatResult(msg.Result) {
 		m.Messages = append(m.Messages, line)
 	}
-	return m
+	if cmd := m.nextDroppedRealtimeTick(msg); cmd != nil {
+		return m, cmd
+	}
+	return m, m.nextRealtimeTick(msg)
+}
+
+func (m *Model) nextDroppedRealtimeTick(msg commandFinishedMsg) tea.Cmd {
+	if !m.droppedRealtimeTick || !m.realtime || m.realtimeTick == nil {
+		return nil
+	}
+	m.droppedRealtimeTick = false
+	if msg.Input == "/realtime chunk" {
+		return nil
+	}
+	return m.realtimeTick()
+}
+
+func (m *Model) nextRealtimeTick(msg commandFinishedMsg) tea.Cmd {
+	m.droppedRealtimeTick = false
+	if !m.realtime || msg.Result.Command != app.CommandRealtime || m.realtimeTick == nil {
+		return nil
+	}
+	if msg.Input != "/realtime start" && msg.Input != "/realtime start mic" && msg.Input != "/realtime chunk" {
+		return nil
+	}
+	return m.realtimeTick()
 }
 
 func loadingStatusMessage(input string) string {
-	if strings.HasPrefix(input, "/ask ") || input == "/ask" || strings.HasPrefix(input, "/translate ") || input == "/translate" {
+	if strings.HasPrefix(input, "/ask ") || input == "/ask" || strings.HasPrefix(input, "/translate ") || input == "/translate" || input == "/realtime chunk" {
 		return "Processing request..."
 	}
 	command := input
@@ -180,7 +216,7 @@ func statusForResult(result app.Result) statusState {
 	switch result.Command {
 	case app.CommandHelp, app.CommandModels:
 		return statusInfo
-	case app.CommandConnect, app.CommandRecord, app.CommandStop, app.CommandAsk, app.CommandTranslate, app.CommandClear:
+	case app.CommandConnect, app.CommandRecord, app.CommandStop, app.CommandAsk, app.CommandTranslate, app.CommandRealtime, app.CommandClear:
 		return statusSuccess
 	default:
 		return statusIdle
@@ -206,6 +242,8 @@ func statusMessageForResult(result app.Result) string {
 		return "Answer is shown below."
 	case app.CommandTranslate:
 		return "Translations are shown below."
+	case app.CommandRealtime:
+		return "Realtime translation updated."
 	case app.CommandClear:
 		return "Context cleared."
 	default:
@@ -244,6 +282,21 @@ func formatResult(result app.Result) []string {
 			lines = append(lines, "", "Setup guidance:")
 			for _, line := range result.Guidance {
 				lines = append(lines, "  "+line)
+			}
+		}
+		return lines
+	}
+	if result.Command == app.CommandRealtime && len(result.Chunks) > 0 {
+		lines := []string{result.Message, "Realtime:"}
+		for i, chunk := range result.Chunks {
+			lines = append(lines, fmt.Sprintf("Chunk %d:", i+1))
+			if chunk.Transcript.Text != "" {
+				lines = appendBlock(lines, "  Transcript", chunk.Transcript.Text)
+			}
+			for _, language := range app.SummaryLanguages() {
+				if text := chunk.Translations[language]; text != "" {
+					lines = appendBlock(lines, "  "+strings.ToUpper(string(language)), text)
+				}
 			}
 		}
 		return lines

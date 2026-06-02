@@ -216,3 +216,8 @@ type RecentContext struct {
 	Transcript Transcript `json:"transcript"`
 	Summary    Summary    `json:"summary"`
 }
+
+type RealtimeChunk struct {
+	Transcript   Transcript   `json:"transcript"`
+	Translations Translations `json:"translations"`
+}

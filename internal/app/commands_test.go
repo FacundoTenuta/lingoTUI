@@ -14,6 +14,7 @@ func TestParseCommand(t *testing.T) {
 		source   AudioSource
 		question string
 		text     string
+		action   RealtimeAction
 		err      error
 	}{
 		{name: "empty input", input: "  ", kind: CommandEmpty},
@@ -28,6 +29,14 @@ func TestParseCommand(t *testing.T) {
 		{name: "ask missing question", input: "/ask", kind: CommandAsk, err: ErrMissingCommandArgument},
 		{name: "translate with text", input: "/translate hello", kind: CommandTranslate, text: "hello"},
 		{name: "translate missing text", input: "/translate", kind: CommandTranslate, err: ErrMissingCommandArgument},
+		{name: "realtime start shorthand", input: "/realtime start", kind: CommandRealtime, source: AudioSourceMic, action: RealtimeActionStart},
+		{name: "realtime start mic", input: "/realtime start mic", kind: CommandRealtime, source: AudioSourceMic, action: RealtimeActionStart},
+		{name: "realtime start unsupported source", input: "/realtime start system", kind: CommandRealtime, source: AudioSourceSystem, action: RealtimeActionStart, err: ErrUnsupportedAudioSource},
+		{name: "realtime start with extra args", input: "/realtime start mic now", kind: CommandRealtime, action: RealtimeActionStart, err: ErrUnsupportedRealtime},
+		{name: "realtime stop", input: "/realtime stop", kind: CommandRealtime, action: RealtimeActionStop},
+		{name: "realtime missing action", input: "/realtime", kind: CommandRealtime, err: ErrMissingCommandArgument},
+		{name: "realtime invalid action", input: "/realtime pause", kind: CommandRealtime, action: RealtimeAction("pause"), err: ErrUnsupportedRealtime},
+		{name: "realtime stop with extra args", input: "/realtime stop mic", kind: CommandRealtime, action: RealtimeActionStop, err: ErrUnsupportedRealtime},
 		{name: "clear", input: "/clear", kind: CommandClear},
 		{name: "help", input: "/help", kind: CommandHelp},
 		{name: "unknown slash command", input: "/wat", kind: CommandEmpty, err: ErrUnknownCommand},
@@ -39,7 +48,7 @@ func TestParseCommand(t *testing.T) {
 			if !errors.Is(err, tt.err) {
 				t.Fatalf("error = %v, want %v", err, tt.err)
 			}
-			if cmd.Kind != tt.kind || cmd.Source != tt.source || cmd.Question != tt.question || cmd.Text != tt.text {
+			if cmd.Kind != tt.kind || cmd.Source != tt.source || cmd.Question != tt.question || cmd.Text != tt.text || cmd.RealtimeAction != tt.action {
 				t.Fatalf("command = %+v", cmd)
 			}
 		})
@@ -48,8 +57,8 @@ func TestParseCommand(t *testing.T) {
 
 func TestHelpEntriesCoverSupportedCommands(t *testing.T) {
 	entries := HelpEntries()
-	if len(entries) != 8 {
-		t.Fatalf("entries = %d, want 8", len(entries))
+	if len(entries) != 10 {
+		t.Fatalf("entries = %d, want 10", len(entries))
 	}
 	joined := ""
 	for _, entry := range entries {
@@ -58,7 +67,7 @@ func TestHelpEntriesCoverSupportedCommands(t *testing.T) {
 		}
 		joined += entry.Command + "\n"
 	}
-	for _, want := range []string{"/translate <text>", "/ask <question>", "/stop"} {
+	for _, want := range []string{"/translate <text>", "/ask <question>", "/stop", "/realtime start mic", "/realtime stop"} {
 		if !strings.Contains(joined, want) {
 			t.Fatalf("help entries missing %q: %s", want, joined)
 		}
@@ -67,7 +76,7 @@ func TestHelpEntriesCoverSupportedCommands(t *testing.T) {
 
 func TestDefaultSetupGuidanceCoversCredentialAndMicrophone(t *testing.T) {
 	guidance := strings.Join(DefaultSetupGuidance(), "\n")
-	for _, want := range []string{"lingotui login openai", "lingotui login chatgpt", "OpenAI remains the default", "chat_model.provider", "LocalWhisper", "whisper-cli", "local_whisper.binary_path", "macOS Keychain", "auth.json fallback", "/connect", "Microphone", "/record mic", "Provider calls happen only on /stop, /ask, or /translate"} {
+	for _, want := range []string{"lingotui login openai", "lingotui login chatgpt", "OpenAI remains the default", "chat_model.provider", "LocalWhisper", "whisper-cli", "local_whisper.binary_path", "macOS Keychain", "auth.json fallback", "/connect", "Microphone", "/record mic", "Provider calls happen only on /stop, /ask, /translate, or realtime chunks"} {
 		if !strings.Contains(guidance, want) {
 			t.Fatalf("guidance missing %q: %s", want, guidance)
 		}

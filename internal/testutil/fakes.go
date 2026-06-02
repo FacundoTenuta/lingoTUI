@@ -8,6 +8,7 @@ import (
 
 var (
 	_ app.Recorder        = (*Recorder)(nil)
+	_ app.ChunkRecorder   = (*ChunkRecorder)(nil)
 	_ app.Transcriber     = Provider{}
 	_ app.Chat            = Provider{}
 	_ app.ConfigStore     = (*ConfigStore)(nil)
@@ -28,6 +29,57 @@ func (r *Recorder) Start(_ context.Context, source app.AudioSource) error {
 }
 
 func (r *Recorder) Stop(context.Context) (app.AudioFile, error) { return r.File, r.StopErr }
+
+type ChunkRecorder struct {
+	Started           app.AudioSource
+	Chunks            []app.AudioFile
+	Final             []app.AudioFile
+	StartCalls        int
+	NextCalls         int
+	StopCalls         int
+	CleanupCalls      int
+	CleanupChunkCalls int
+	CleanedChunks     []app.AudioFile
+	StartErr          error
+	NextErr           error
+	StopErr           error
+	CleanupErr        error
+}
+
+func (r *ChunkRecorder) Start(_ context.Context, source app.AudioSource) error {
+	r.StartCalls++
+	r.Started = source
+	return r.StartErr
+}
+
+func (r *ChunkRecorder) NextChunk(context.Context) (app.AudioFile, bool, error) {
+	r.NextCalls++
+	if r.NextErr != nil {
+		return app.AudioFile{}, false, r.NextErr
+	}
+	if len(r.Chunks) == 0 {
+		return app.AudioFile{}, false, nil
+	}
+	chunk := r.Chunks[0]
+	r.Chunks = r.Chunks[1:]
+	return chunk, true, nil
+}
+
+func (r *ChunkRecorder) Stop(context.Context) ([]app.AudioFile, error) {
+	r.StopCalls++
+	return append([]app.AudioFile(nil), r.Final...), r.StopErr
+}
+
+func (r *ChunkRecorder) CleanupChunk(_ context.Context, file app.AudioFile) error {
+	r.CleanupChunkCalls++
+	r.CleanedChunks = append(r.CleanedChunks, file)
+	return r.CleanupErr
+}
+
+func (r *ChunkRecorder) Cleanup(context.Context) error {
+	r.CleanupCalls++
+	return r.CleanupErr
+}
 
 type Provider struct {
 	Transcript   app.Transcript

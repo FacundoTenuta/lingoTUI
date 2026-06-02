@@ -54,7 +54,7 @@ func TestServiceConnectChecksMixedRuntimeLocallyWithoutProviderCalls(t *testing.
 	if err != nil {
 		t.Fatal(err)
 	}
-	for _, want := range []string{"localwhisper/ggml-small.bin", "chatgpt/configured-chatgpt-model", "Provider calls happen only on /stop, /ask, or /translate"} {
+	for _, want := range []string{"localwhisper/ggml-small.bin", "chatgpt/configured-chatgpt-model", "Provider calls happen only on /stop, /ask, /translate, or realtime chunks"} {
 		if !strings.Contains(result.Message, want) {
 			t.Fatalf("message missing %q: %s", want, result.Message)
 		}
@@ -341,6 +341,173 @@ func TestServiceTranslateMissingTextUsesMissingArgumentError(t *testing.T) {
 	}
 }
 
+func TestServiceRealtimeStartDoesNotCallProviders(t *testing.T) {
+	chunks := &testutil.ChunkRecorder{}
+	provider := &recordingProvider{}
+	service := NewService(Dependencies{
+		ChunkRecorder: chunks,
+		Transcriber:   provider,
+		Chat:          provider,
+	})
+
+	result, err := service.RealtimeStart(context.Background(), AudioSourceMic)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !result.Realtime || chunks.StartCalls != 1 || chunks.Started != AudioSourceMic {
+		t.Fatalf("result=%+v chunks=%+v", result, chunks)
+	}
+	if provider.transcribeCalls != 0 || provider.translateCalls != 0 {
+		t.Fatalf("start called providers: %+v", provider)
+	}
+}
+
+func TestServiceRealtimeChunkTranscribesAndTranslatesConfiguredChunk(t *testing.T) {
+	chunks := &testutil.ChunkRecorder{Chunks: []AudioFile{{Path: "chunk-1.wav"}}}
+	provider := &recordingProvider{
+		transcript: Transcript{Text: "hola mundo"},
+		translations: Translations{
+			LanguageSpanish: "hola mundo",
+			LanguageEnglish: "hello world",
+			LanguageGerman:  "hallo welt",
+		},
+	}
+	service := NewService(Dependencies{
+		ChunkRecorder: chunks,
+		Transcriber:   provider,
+		Chat:          provider,
+		Config: &testutil.ConfigStore{Config: Config{
+			TranscriptionModel: ModelRef{Provider: ProviderLocalWhisper, Name: "ggml-small.bin", Purpose: ModelPurposeTranscription},
+			ChatModel:          ModelRef{Provider: ProviderChatGPT, Name: "configured-chatgpt-model", Purpose: ModelPurposeChat},
+		}},
+	})
+
+	if _, err := service.RealtimeStart(context.Background(), AudioSourceMic); err != nil {
+		t.Fatal(err)
+	}
+	result, err := service.RealtimeChunk(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !result.Realtime || len(result.Chunks) != 1 || result.Chunks[0].Translations[LanguageEnglish] != "hello world" {
+		t.Fatalf("result = %+v", result)
+	}
+	if chunks.NextCalls != 1 || provider.transcribeFile.Path != "chunk-1.wav" || provider.transcriptionModel.Provider != ProviderLocalWhisper || provider.translationModel.Provider != ProviderChatGPT {
+		t.Fatalf("chunks=%+v provider=%+v", chunks, provider)
+	}
+	if provider.translationText != "hola mundo" || !reflect.DeepEqual(provider.translationLanguages, SummaryLanguages()) {
+		t.Fatalf("translation text/languages = %q/%+v", provider.translationText, provider.translationLanguages)
+	}
+}
+
+func TestServiceRealtimeStopFlushesFinalChunkAndStoresContext(t *testing.T) {
+	chunks := &testutil.ChunkRecorder{Final: []AudioFile{{Path: "final.wav"}}}
+	provider := &recordingProvider{
+		transcript: Transcript{Text: "final words"},
+		translations: Translations{
+			LanguageSpanish: "palabras finales",
+			LanguageEnglish: "final words",
+			LanguageGerman:  "letzte worte",
+		},
+	}
+	contexts := &testutil.ContextStore{}
+	service := NewService(Dependencies{ChunkRecorder: chunks, Transcriber: provider, Chat: provider, Context: contexts})
+
+	if _, err := service.RealtimeStart(context.Background(), AudioSourceMic); err != nil {
+		t.Fatal(err)
+	}
+	result, err := service.RealtimeStop(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result.Realtime || len(result.Chunks) != 1 || result.Chunks[0].Transcript.Text != "final words" {
+		t.Fatalf("result = %+v", result)
+	}
+	if chunks.StopCalls != 1 || provider.transcribeFile.Path != "final.wav" {
+		t.Fatalf("chunks=%+v provider=%+v", chunks, provider)
+	}
+	if !contexts.Has || contexts.Context.Transcript.Text != "final words" || contexts.Context.Summary[LanguageGerman] != "letzte worte" {
+		t.Fatalf("stored context = %+v", contexts)
+	}
+
+	result, err = service.RealtimeStop(context.Background())
+	if !errors.Is(err, ErrRealtimeInactive) {
+		t.Fatalf("second stop err = %v, want %v; result=%+v", err, ErrRealtimeInactive, result)
+	}
+}
+
+func TestServiceRealtimeStopDrainsQueuedChunksAndCleansSession(t *testing.T) {
+	chunks := &testutil.ChunkRecorder{Final: []AudioFile{{Path: "queued-1.wav"}, {Path: "queued-2.wav"}}}
+	provider := &recordingProvider{
+		transcript: Transcript{Text: "queued words"},
+		translations: Translations{
+			LanguageSpanish: "palabras en cola",
+			LanguageEnglish: "queued words",
+			LanguageGerman:  "wartende worte",
+		},
+	}
+	contexts := &testutil.ContextStore{}
+	service := NewService(Dependencies{ChunkRecorder: chunks, Transcriber: provider, Chat: provider, Context: contexts})
+
+	if _, err := service.RealtimeStart(context.Background(), AudioSourceMic); err != nil {
+		t.Fatal(err)
+	}
+	result, err := service.RealtimeStop(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if result.Realtime || len(result.Chunks) != 2 || provider.transcribeCalls != 2 || provider.translateCalls != 2 {
+		t.Fatalf("result=%+v provider=%+v", result, provider)
+	}
+	if chunks.CleanupCalls != 1 {
+		t.Fatalf("cleanup calls = %d, want 1", chunks.CleanupCalls)
+	}
+	if !contexts.Has || strings.Count(contexts.Context.Transcript.Text, "queued words") != 2 {
+		t.Fatalf("stored context = %+v", contexts.Context)
+	}
+}
+
+func TestServiceRealtimeConflictsWithNormalRecording(t *testing.T) {
+	service := NewService(Dependencies{Recorder: &testutil.Recorder{}, ChunkRecorder: &testutil.ChunkRecorder{}})
+	if _, err := service.Record(context.Background(), AudioSourceMic); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := service.RealtimeStart(context.Background(), AudioSourceMic); !errors.Is(err, ErrAlreadyRecording) {
+		t.Fatalf("realtime while recording err = %v, want %v", err, ErrAlreadyRecording)
+	}
+
+	service = NewService(Dependencies{Recorder: &testutil.Recorder{}, ChunkRecorder: &testutil.ChunkRecorder{}})
+	if _, err := service.RealtimeStart(context.Background(), AudioSourceMic); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := service.Record(context.Background(), AudioSourceMic); !errors.Is(err, ErrAlreadyRecording) {
+		t.Fatalf("record while realtime err = %v, want %v", err, ErrAlreadyRecording)
+	}
+}
+
+func TestServiceParseErrorPreservesRealtimeState(t *testing.T) {
+	service := NewService(Dependencies{ChunkRecorder: &testutil.ChunkRecorder{}})
+	if _, err := service.RealtimeStart(context.Background(), AudioSourceMic); err != nil {
+		t.Fatal(err)
+	}
+
+	result, err := service.HandleInput(context.Background(), "/wat")
+
+	if !errors.Is(err, ErrUnknownCommand) || !result.Realtime {
+		t.Fatalf("result=%+v err=%v, want realtime parse error", result, err)
+	}
+}
+
+func TestServiceRealtimeStartWithoutChunkRecorderIsClearNotConfigured(t *testing.T) {
+	service := NewService(Dependencies{})
+
+	_, err := service.HandleInput(context.Background(), "/realtime start mic")
+	if !errors.Is(err, ErrNotConfigured) || !strings.Contains(err.Error(), "chunk recorder") || !strings.Contains(err.Error(), "not wired") {
+		t.Fatalf("error = %v", err)
+	}
+}
+
 func TestServicePropagatesRecorderAndProviderErrors(t *testing.T) {
 	tests := []struct {
 		name string
@@ -413,7 +580,7 @@ func TestServiceHelpIncludesSetupGuidance(t *testing.T) {
 		t.Fatalf("help result = %+v", result)
 	}
 	joined := strings.Join(result.Guidance, "\n")
-	for _, want := range []string{"lingotui login openai", "lingotui login chatgpt", "auth.json fallback", "/connect", "/record mic", "Provider calls happen only on /stop, /ask, or /translate"} {
+	for _, want := range []string{"lingotui login openai", "lingotui login chatgpt", "auth.json fallback", "/connect", "/record mic", "Provider calls happen only on /stop, /ask, /translate, or realtime chunks"} {
 		if !strings.Contains(joined, want) {
 			t.Fatalf("guidance missing %q: %s", want, joined)
 		}
@@ -486,6 +653,10 @@ type recordingProvider struct {
 	translationText      string
 	translationLanguages []Language
 	translationModel     ModelRef
+	transcribeCalls      int
+	translateCalls       int
+	transcribeFile       AudioFile
+	transcriptionModel   ModelRef
 }
 
 type mixedCredentialStore struct {
@@ -525,13 +696,17 @@ func (s *mixedCredentialStore) DeleteCredential(context.Context, ProviderID, Cre
 }
 
 func (p *recordingProvider) Translate(_ context.Context, text string, languages []Language, model ModelRef) (Translations, error) {
+	p.translateCalls++
 	p.translationText = text
 	p.translationLanguages = append([]Language(nil), languages...)
 	p.translationModel = model
 	return p.translations, nil
 }
 
-func (p *recordingProvider) Transcribe(context.Context, AudioFile, ModelRef) (Transcript, error) {
+func (p *recordingProvider) Transcribe(_ context.Context, file AudioFile, model ModelRef) (Transcript, error) {
+	p.transcribeCalls++
+	p.transcribeFile = file
+	p.transcriptionModel = model
 	return p.transcript, nil
 }
 

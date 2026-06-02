@@ -20,7 +20,7 @@ func TestModelUpdateShowsHelp(t *testing.T) {
 	if updated.Status != statusInfo || !strings.Contains(view, "Info: Supported commands:") {
 		t.Fatalf("expected info status, status=%v view=%s", updated.Status, view)
 	}
-	if !strings.Contains(view, "/record mic") || !strings.Contains(view, "/ask <question>") || !strings.Contains(view, "/translate <text>") || !strings.Contains(view, "auth.json") {
+	if !strings.Contains(view, "/record mic") || !strings.Contains(view, "/realtime start mic") || !strings.Contains(view, "/ask <question>") || !strings.Contains(view, "/translate <text>") || !strings.Contains(view, "auth.json") {
 		t.Fatalf("view missing help: %s", view)
 	}
 }
@@ -53,7 +53,7 @@ func TestNewModelShowsInteractiveMenu(t *testing.T) {
 	model := NewModel(fake)
 	view := model.View()
 
-	for _, want := range []string{"Use up/down or k/j", "> Ask", "Translate", "Record mic", "Connect"} {
+	for _, want := range []string{"Use up/down or k/j", "> Ask", "Translate", "Realtime mic", "Record mic", "Connect"} {
 		if !strings.Contains(view, want) {
 			t.Fatalf("view missing %q: %s", want, view)
 		}
@@ -147,6 +147,7 @@ func TestModelCommandCompletionAppliesResultAndError(t *testing.T) {
 func TestModelUpdateEnterDispatchesSelectedStaticCommand(t *testing.T) {
 	fake := &fakeApp{result: app.Result{Message: "help shown"}}
 	model := NewModel(fake)
+	model = updateModel(t, model, tea.KeyMsg{Type: tea.KeyDown})
 	model = updateModel(t, model, tea.KeyMsg{Type: tea.KeyDown})
 	model = updateModel(t, model, tea.KeyMsg{Type: tea.KeyDown})
 	model, cmd := updateModelWithCmd(t, model, tea.KeyMsg{Type: tea.KeyEnter})
@@ -489,6 +490,137 @@ func TestModelTranslateResultShowsTranslationsInHistory(t *testing.T) {
 	}
 }
 
+func TestModelRealtimeMenuStartAndManualTickShowsChunks(t *testing.T) {
+	fake := &fakeApp{results: []app.Result{
+		{Command: app.CommandRealtime, Message: "Realtime translation started.", Realtime: true},
+		{Command: app.CommandRealtime, Message: "Translated realtime chunk.", Realtime: true, Chunks: []app.RealtimeChunk{{
+			Transcript: app.Transcript{Text: "hola mundo"},
+			Translations: app.Translations{
+				app.LanguageSpanish: "hola mundo",
+				app.LanguageEnglish: "hello world",
+				app.LanguageGerman:  "hallo welt",
+			},
+		}}},
+	}}
+	model := NewModel(fake)
+	tickCalls := 0
+	model.realtimeTick = func() tea.Cmd {
+		tickCalls++
+		return func() tea.Msg { return RealtimeTickMsg{} }
+	}
+	model = updateModel(t, model, tea.KeyMsg{Type: tea.KeyDown})
+	model = updateModel(t, model, tea.KeyMsg{Type: tea.KeyDown})
+	model, cmd := updateModelWithCmd(t, model, tea.KeyMsg{Type: tea.KeyEnter})
+	model, tickCmd := applyCommandWithNext(t, model, cmd)
+
+	if !model.realtime || tickCmd == nil || tickCalls != 1 || strings.Join(fake.inputs, ",") != "/realtime start mic" {
+		t.Fatalf("realtime=%v tickCmd=%v tickCalls=%d inputs=%v view=%s", model.realtime, tickCmd, tickCalls, fake.inputs, model.View())
+	}
+	model, cmd = updateModelWithCmd(t, model, tickCmd())
+	if cmd == nil || strings.Join(fake.inputs, ",") != "/realtime start mic" {
+		t.Fatalf("tick should return command without eager app call: cmd=%v inputs=%v", cmd, fake.inputs)
+	}
+	model, tickCmd = applyCommandWithNext(t, model, cmd)
+	if tickCmd == nil || tickCalls != 2 {
+		t.Fatalf("successful chunk should schedule next tick: tickCmd=%v tickCalls=%d", tickCmd, tickCalls)
+	}
+	view := model.View()
+	for _, want := range []string{"Realtime:", "Chunk 1:", "Transcript:", "hola mundo", "ES:", "hola mundo", "EN:", "hello world", "DE:", "hallo welt"} {
+		if !strings.Contains(view, want) {
+			t.Fatalf("view missing %q: %s", want, view)
+		}
+	}
+	if got, want := strings.Join(fake.inputs, ","), "/realtime start mic,/realtime chunk"; got != want {
+		t.Fatalf("inputs = %q, want %q", got, want)
+	}
+}
+
+func TestModelRealtimeStopDisablesFurtherTickDispatch(t *testing.T) {
+	fake := &fakeApp{results: []app.Result{
+		{Command: app.CommandRealtime, Message: "Realtime translation started.", Realtime: true},
+		{Command: app.CommandRealtime, Message: "Stopped realtime translation.", Realtime: false},
+	}}
+	model := NewModel(fake)
+	model.realtimeTick = func() tea.Cmd { return func() tea.Msg { return RealtimeTickMsg{} } }
+	model, cmd := submitModelPending(t, model, "/realtime start mic")
+	model, tickCmd := applyCommandWithNext(t, model, cmd)
+	if !model.realtime {
+		t.Fatalf("expected realtime active after start: %s", model.View())
+	}
+	if tickCmd == nil {
+		t.Fatal("expected realtime start to schedule a tick")
+	}
+	model = submitModel(t, model, "/realtime stop")
+	if model.realtime {
+		t.Fatalf("expected realtime inactive after stop: %s", model.View())
+	}
+	model, cmd = updateModelWithCmd(t, model, RealtimeTickMsg{})
+	if cmd != nil || strings.Join(fake.inputs, ",") != "/realtime start mic,/realtime stop" {
+		t.Fatalf("tick after stop dispatched: cmd=%v inputs=%v", cmd, fake.inputs)
+	}
+}
+
+func TestModelRealtimeStartShorthandSchedulesTick(t *testing.T) {
+	fake := &fakeApp{result: app.Result{Command: app.CommandRealtime, Message: "Realtime translation started.", Realtime: true}}
+	model := NewModel(fake)
+	tickCalls := 0
+	model.realtimeTick = func() tea.Cmd {
+		tickCalls++
+		return func() tea.Msg { return RealtimeTickMsg{} }
+	}
+
+	model, cmd := submitModelPending(t, model, "/realtime start")
+	model, tickCmd := applyCommandWithNext(t, model, cmd)
+
+	if !model.realtime || tickCmd == nil || tickCalls != 1 || strings.Join(fake.inputs, ",") != "/realtime start" {
+		t.Fatalf("realtime=%v tickCmd=%v tickCalls=%d inputs=%v", model.realtime, tickCmd, tickCalls, fake.inputs)
+	}
+}
+
+func TestModelRealtimeErrorPreservesRealtimeState(t *testing.T) {
+	fake := &fakeApp{result: app.Result{Command: app.CommandRealtime, Realtime: true}, err: errors.New("unknown command")}
+	model := NewModel(fake)
+	model.realtime = true
+	tickCalls := 0
+	model.realtimeTick = func() tea.Cmd {
+		tickCalls++
+		return func() tea.Msg { return RealtimeTickMsg{} }
+	}
+
+	model, command := submitModelPending(t, model, "/wat")
+	model, droppedTick := updateModelWithCmd(t, model, RealtimeTickMsg{})
+	if droppedTick != nil {
+		t.Fatalf("tick while loading should be dropped: %v", droppedTick)
+	}
+	model, nextTick := applyCommandWithNext(t, model, command)
+
+	if !model.realtime || nextTick == nil || tickCalls != 1 {
+		t.Fatalf("expected realtime to remain active and reschedule after error: realtime=%v nextTick=%v tickCalls=%d view=%s", model.realtime, nextTick, tickCalls, model.View())
+	}
+}
+
+func TestModelRealtimeSuccessAfterDroppedTickSchedulesReplacement(t *testing.T) {
+	fake := &fakeApp{result: app.Result{Command: app.CommandAsk, Message: "answered", Realtime: true}}
+	model := NewModel(fake)
+	model.realtime = true
+	tickCalls := 0
+	model.realtimeTick = func() tea.Cmd {
+		tickCalls++
+		return func() tea.Msg { return RealtimeTickMsg{} }
+	}
+
+	model, command := submitModelPending(t, model, "/ask what happened?")
+	model, droppedTick := updateModelWithCmd(t, model, RealtimeTickMsg{})
+	if droppedTick != nil {
+		t.Fatalf("tick while loading should be dropped: %v", droppedTick)
+	}
+	model, nextTick := applyCommandWithNext(t, model, command)
+
+	if !model.realtime || nextTick == nil || tickCalls != 1 {
+		t.Fatalf("expected realtime success to reschedule dropped tick: realtime=%v nextTick=%v tickCalls=%d view=%s", model.realtime, nextTick, tickCalls, model.View())
+	}
+}
+
 func TestModelUpdateShowsProviderAndRecorderErrors(t *testing.T) {
 	tests := []struct {
 		name    string
@@ -554,6 +686,15 @@ func applyCommand(t *testing.T, model Model, cmd tea.Cmd) Model {
 	return modelFromTea(t, updated)
 }
 
+func applyCommandWithNext(t *testing.T, model Model, cmd tea.Cmd) (Model, tea.Cmd) {
+	t.Helper()
+	if cmd == nil {
+		t.Fatal("expected command")
+	}
+	updated, nextCmd := model.Update(cmd())
+	return modelFromTea(t, updated), nextCmd
+}
+
 func updateModel(t *testing.T, model Model, msg tea.Msg) Model {
 	t.Helper()
 	updated, _ := model.Update(msg)
@@ -576,13 +717,27 @@ func modelFromTea(t *testing.T, updated tea.Model) Model {
 }
 
 type fakeApp struct {
-	result app.Result
-	err    error
-	inputs []string
+	result  app.Result
+	results []app.Result
+	err     error
+	errs    []error
+	inputs  []string
 }
 
 func (f *fakeApp) HandleInput(_ context.Context, input string) (app.Result, error) {
 	f.inputs = append(f.inputs, input)
+	index := len(f.inputs) - 1
+	if len(f.results) > index || len(f.errs) > index {
+		var result app.Result
+		var err error
+		if len(f.results) > index {
+			result = f.results[index]
+		}
+		if len(f.errs) > index {
+			err = f.errs[index]
+		}
+		return result, err
+	}
 	return f.result, f.err
 }
 

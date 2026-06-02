@@ -15,6 +15,7 @@ import (
 func TestBuildRuntimeStartsWithOnboardingAndNoExternalSideEffects(t *testing.T) {
 	baseDir := t.TempDir()
 	recorder := &countingRecorder{}
+	chunkRecorder := &countingChunkRecorder{}
 	provider := &countingProvider{}
 	audioChecker := &countingAudioChecker{status: setup.ItemStatus{Name: "Microphone", State: setup.StateUnknown, Message: "grant access before /record mic"}}
 
@@ -33,9 +34,10 @@ func TestBuildRuntimeStartsWithOnboardingAndNoExternalSideEffects(t *testing.T) 
 			}
 			return provider, nil
 		},
-		newRecorder:     func() app.Recorder { return recorder },
-		audioChecker:    audioChecker,
-		credentialStore: store,
+		newRecorder:      func() app.Recorder { return recorder },
+		newChunkRecorder: func() app.ChunkRecorder { return chunkRecorder },
+		audioChecker:     audioChecker,
+		credentialStore:  store,
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -57,6 +59,49 @@ func TestBuildRuntimeStartsWithOnboardingAndNoExternalSideEffects(t *testing.T) 
 	}
 	if recorder.starts != 0 || recorder.stops != 0 || provider.transcribes != 0 || provider.summarizes != 0 || provider.answers != 0 || provider.translates != 0 {
 		t.Fatalf("startup side effects: recorder=%+v provider=%+v", recorder, provider)
+	}
+	if chunkRecorder.starts != 0 || chunkRecorder.nexts != 0 || chunkRecorder.stops != 0 {
+		t.Fatalf("startup chunk recorder side effects: %+v", chunkRecorder)
+	}
+}
+
+func TestDefaultRuntimeWiresChunkRecorderPassively(t *testing.T) {
+	chunkRecorder := defaultRuntimeOptions().newChunkRecorder()
+	if chunkRecorder == nil {
+		t.Fatal("default chunk recorder = nil, want production recorder")
+	}
+}
+
+func TestBuildRuntimeAllowsExplicitRealtimeStartOnlyAfterUserCommand(t *testing.T) {
+	baseDir := t.TempDir()
+	chunkRecorder := &countingChunkRecorder{}
+	model, err := buildRuntimeWithOptions(baseDir, runtimeOptions{
+		newRecorder:      func() app.Recorder { return &countingRecorder{} },
+		newChunkRecorder: func() app.ChunkRecorder { return chunkRecorder },
+		audioChecker:     &countingAudioChecker{status: setup.ItemStatus{Name: "Microphone", State: setup.StateReady, Message: "ready"}},
+		credentialStore:  &missingRuntimeCredentialStore{},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if chunkRecorder.starts != 0 || chunkRecorder.nexts != 0 || chunkRecorder.stops != 0 {
+		t.Fatalf("startup chunk recorder side effects: %+v", chunkRecorder)
+	}
+
+	updated, cmd := model.Update(tui.Submit("/realtime start mic"))
+	if cmd == nil {
+		t.Fatal("expected realtime start command")
+	}
+	if chunkRecorder.starts != 0 {
+		t.Fatalf("chunk recorder starts before command execution = %d, want 0", chunkRecorder.starts)
+	}
+	updated, _ = updated.Update(cmd())
+	model = updated.(tui.Model)
+	if chunkRecorder.starts != 1 || chunkRecorder.nexts != 0 || chunkRecorder.stops != 0 {
+		t.Fatalf("explicit realtime start side effects: %+v", chunkRecorder)
+	}
+	if !strings.Contains(model.View(), "Realtime translation started") {
+		t.Fatalf("view missing realtime start result:\n%s", model.View())
 	}
 }
 
@@ -388,6 +433,27 @@ func TestDefaultChatGPTChatConstructionHasNoCredentialSideEffects(t *testing.T) 
 type countingRecorder struct {
 	starts int
 	stops  int
+}
+
+type countingChunkRecorder struct {
+	starts int
+	nexts  int
+	stops  int
+}
+
+func (r *countingChunkRecorder) Start(context.Context, app.AudioSource) error {
+	r.starts++
+	return nil
+}
+
+func (r *countingChunkRecorder) NextChunk(context.Context) (app.AudioFile, bool, error) {
+	r.nexts++
+	return app.AudioFile{Path: "chunk.wav"}, true, nil
+}
+
+func (r *countingChunkRecorder) Stop(context.Context) ([]app.AudioFile, error) {
+	r.stops++
+	return nil, nil
 }
 
 func (r *countingRecorder) Start(context.Context, app.AudioSource) error {

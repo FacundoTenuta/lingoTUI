@@ -31,6 +31,7 @@ type runtimeOptions struct {
 	newLocalWhisperTranscriber func(app.LocalWhisperConfig) (app.Transcriber, error)
 	newChatGPTChat             func(app.AuthCredentialStore) (app.Chat, error)
 	newRecorder                func() app.Recorder
+	newChunkRecorder           func() app.ChunkRecorder
 	audioChecker               setup.AudioPermissionChecker
 	credentialStore            app.CredentialStore
 	credentialPath             setup.PathProvider
@@ -110,6 +111,7 @@ func buildRuntimeWithOptions(baseDir string, options runtimeOptions) (tui.Model,
 
 	service := app.NewService(app.Dependencies{
 		Recorder:      options.newRecorder(),
+		ChunkRecorder: options.newChunkRecorder(),
 		Transcriber:   transcriber,
 		Chat:          chat,
 		Config:        configStore,
@@ -163,6 +165,12 @@ func defaultRuntimeOptions() runtimeOptions {
 				audio.WithTempDir(filepath.Join(os.TempDir(), "lingotui")),
 			)
 		},
+		newChunkRecorder: func() app.ChunkRecorder {
+			return audio.NewFFmpegChunkRecorder(
+				audio.WithChunkInputDevice(os.Getenv("LINGOTUI_FFMPEG_MIC_DEVICE")),
+				audio.WithChunkTempDir(filepath.Join(os.TempDir(), "lingotui")),
+			)
+		},
 		audioChecker: audio.NewMicrophonePermissionChecker(),
 	}
 }
@@ -187,6 +195,9 @@ func normalizeRuntimeOptions(options runtimeOptions) runtimeOptions {
 	}
 	if options.newRecorder == nil {
 		options.newRecorder = defaults.newRecorder
+	}
+	if options.newChunkRecorder == nil {
+		options.newChunkRecorder = defaults.newChunkRecorder
 	}
 	if options.audioChecker == nil {
 		options.audioChecker = defaults.audioChecker
