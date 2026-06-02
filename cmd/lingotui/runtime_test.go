@@ -41,7 +41,7 @@ func TestBuildRuntimeStartsWithOnboardingAndNoExternalSideEffects(t *testing.T) 
 	}
 
 	view := model.View()
-	for _, want := range []string{"lingoTUI ready", "Setup status", "OpenAI credentials", "[redacted]", "Microphone", "/record mic"} {
+	for _, want := range []string{"Ready. Choose an action", "Setup status", "OpenAI credentials", "[redacted]", "Microphone", "/record mic"} {
 		if !strings.Contains(view, want) {
 			t.Fatalf("view missing %q:\n%s", want, view)
 		}

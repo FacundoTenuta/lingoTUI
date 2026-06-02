@@ -104,14 +104,74 @@ func (m Model) submit(input string) Model {
 	result, err := m.app.HandleInput(m.ctx, input)
 	if err != nil {
 		m.Err = err
-		m.Messages = append(m.Messages, "Error: "+err.Error())
+		m.Status = statusError
+		m.StatusMessage = "Fix the issue below, then try again or run /help."
+		m.Messages = append(m.Messages, "Error: "+cleanErrorMessage(err.Error()))
 		return m
 	}
 	m.Err = nil
+	m.Status = statusForResult(result)
+	m.StatusMessage = statusMessageForResult(result)
 	for _, line := range formatResult(result) {
 		m.Messages = append(m.Messages, line)
 	}
 	return m
+}
+
+func statusForResult(result app.Result) statusState {
+	switch result.Command {
+	case app.CommandHelp, app.CommandModels:
+		return statusInfo
+	case app.CommandConnect, app.CommandRecord, app.CommandStop, app.CommandAsk, app.CommandClear:
+		return statusSuccess
+	default:
+		return statusIdle
+	}
+}
+
+func statusMessageForResult(result app.Result) string {
+	if result.Message != "" {
+		return result.Message
+	}
+	switch result.Command {
+	case app.CommandHelp:
+		return "Help is shown below."
+	case app.CommandModels:
+		return "Configured models are shown below."
+	case app.CommandConnect:
+		return "Connection command completed."
+	case app.CommandRecord:
+		return "Recording command completed."
+	case app.CommandStop:
+		return "Stop command completed."
+	case app.CommandAsk:
+		return "Answer is shown below."
+	case app.CommandClear:
+		return "Context cleared."
+	default:
+		return readyStatusMessage
+	}
+}
+
+func cleanErrorMessage(message string) string {
+	cleaned := strings.TrimSpace(message)
+	for {
+		lower := strings.ToLower(cleaned)
+		var next string
+		switch {
+		case strings.HasPrefix(lower, "error: "):
+			next = cleaned[len("error: "):]
+		case strings.HasPrefix(lower, "error. "):
+			next = cleaned[len("error. "):]
+		default:
+			next = cleaned
+		}
+		if next == cleaned {
+			break
+		}
+		cleaned = strings.TrimSpace(next)
+	}
+	return cleaned
 }
 
 func formatResult(result app.Result) []string {

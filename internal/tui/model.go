@@ -12,24 +12,38 @@ type App interface {
 }
 
 type Model struct {
-	app       App
-	ctx       context.Context
-	Input     string
-	Messages  []string
-	Err       error
-	MenuIndex int
-	inputMode inputMode
+	app           App
+	ctx           context.Context
+	Input         string
+	Messages      []string
+	SetupLines    []string
+	Err           error
+	Status        statusState
+	StatusMessage string
+	MenuIndex     int
+	inputMode     inputMode
 }
 
 type SubmitMsg struct{ Input string }
 
 type inputMode int
 
+type statusState int
+
 const (
 	menuMode inputMode = iota
 	commandMode
 	askMode
 )
+
+const (
+	statusIdle statusState = iota
+	statusInfo
+	statusSuccess
+	statusError
+)
+
+const readyStatusMessage = "Ready. Choose an action from the menu."
 
 type menuItem struct {
 	Label       string
@@ -49,13 +63,13 @@ var menuItems = []menuItem{
 }
 
 func NewModel(service App, onboardingLines ...string) Model {
-	messages := []string{"lingoTUI ready. Choose an action from the menu."}
-	messages = append(messages, onboardingLines...)
 	return Model{
-		app:       service,
-		ctx:       context.Background(),
-		Messages:  messages,
-		inputMode: menuMode,
+		app:           service,
+		ctx:           context.Background(),
+		SetupLines:    append([]string(nil), onboardingLines...),
+		Status:        statusIdle,
+		StatusMessage: readyStatusMessage,
+		inputMode:     menuMode,
 	}
 }
 
