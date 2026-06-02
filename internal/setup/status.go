@@ -46,19 +46,25 @@ type Service struct {
 	CredentialPath PathProvider
 	Credentials    CredentialStore
 	AudioChecker   AudioPermissionChecker
+	Config         app.Config
 	Provider       app.ProviderID
 }
 
 func (s Service) Status(ctx context.Context) Status {
-	provider := s.Provider
-	if provider == "" {
-		provider = app.ProviderOpenAI
+	cfg := s.Config
+	if cfg.Provider == "" {
+		cfg.Provider = s.Provider
 	}
+	cfg = app.NormalizeConfig(cfg)
+	provider := cfg.Provider
 
 	items := []ItemStatus{
 		configStatus(s.ConfigPath),
 		s.credentialStatus(ctx, provider),
 		s.microphoneStatus(ctx),
+	}
+	if cfg.TranscriptionModel.Provider == app.ProviderLocalWhisper {
+		items = append(items, localWhisperStatus(cfg.LocalWhisper))
 	}
 	ready := true
 	for _, item := range items {
@@ -67,7 +73,7 @@ func (s Service) Status(ctx context.Context) Status {
 			break
 		}
 	}
-	if provider == app.ProviderChatGPT {
+	if provider == app.ProviderChatGPT || provider == app.ProviderLocalWhisper || cfg.TranscriptionModel.Provider == app.ProviderLocalWhisper {
 		ready = false
 	}
 	return Status{Items: items, Ready: ready}
@@ -97,11 +103,29 @@ func configStatus(path PathProvider) ItemStatus {
 	return item
 }
 
+func localWhisperStatus(cfg app.LocalWhisperConfig) ItemStatus {
+	item := ItemStatus{Name: "LocalWhisper model", State: StateMissing}
+	if strings.TrimSpace(cfg.ModelPath) == "" {
+		item.Message = "missing local_whisper.model_path; localwhisper runtime is not implemented yet"
+		return item
+	}
+	item.Path = cfg.ModelPath
+	item.State = StateUnknown
+	item.Message = "configured in local_whisper.model_path; localwhisper runtime is not implemented yet"
+	return item
+}
+
 func (s Service) credentialStatus(ctx context.Context, provider app.ProviderID) ItemStatus {
 	item := ItemStatus{
 		Name:   credentialName(provider),
 		State:  StateMissing,
 		Secret: true,
+	}
+	if provider == app.ProviderLocalWhisper {
+		item.State = StateUnknown
+		item.Secret = false
+		item.Message = "not required for local transcription; localwhisper runtime is not implemented yet"
+		return item
 	}
 	if s.CredentialPath != nil {
 		item.Path = s.CredentialPath.Path()
@@ -144,12 +168,18 @@ func credentialName(provider app.ProviderID) string {
 	if provider == app.ProviderChatGPT {
 		return "ChatGPT Plus/Pro credentials"
 	}
+	if provider == app.ProviderLocalWhisper {
+		return "LocalWhisper credentials"
+	}
 	return "OpenAI credentials"
 }
 
 func credentialUnavailableMessage(provider app.ProviderID) string {
 	if provider == app.ProviderChatGPT {
 		return "credential store unavailable; run lingotui login chatgpt; ChatGPT/Codex runtime is not implemented yet"
+	}
+	if provider == app.ProviderLocalWhisper {
+		return "credential store unavailable; localwhisper runtime is not implemented yet"
 	}
 	return "credential store unavailable; run lingotui login openai or configure auth.json fallback before /connect"
 }

@@ -161,6 +161,63 @@ func TestServiceStatusReportsChatGPTTypedStoreUnsupportedWithoutOldLoad(t *testi
 	}
 }
 
+func TestServiceStatusReportsMissingLocalWhisperModelPathAsAttention(t *testing.T) {
+	credentials := &fakeCredentialStore{secret: app.Secret{Value: "sk-openai"}}
+	audio := &fakeAudioChecker{status: ItemStatus{Name: "Microphone", State: StateReady, Message: "ready"}}
+	service := Service{
+		ConfigPath:     fakePath("/tmp/lingotui/config.json"),
+		CredentialPath: fakePath("/tmp/lingotui/auth.json"),
+		Credentials:    credentials,
+		AudioChecker:   audio,
+		Config: app.Config{
+			Provider:           app.ProviderOpenAI,
+			TranscriptionModel: app.ModelRef{Provider: app.ProviderLocalWhisper, Name: "ggml-small.bin", Purpose: app.ModelPurposeTranscription},
+			ChatModel:          app.ModelRef{Provider: app.ProviderOpenAI, Name: app.DefaultChatModel, Purpose: app.ModelPurposeChat},
+		},
+	}
+
+	status := service.Status(context.Background())
+	if status.Ready {
+		t.Fatalf("status ready = true, want false until localwhisper runtime is implemented: %+v", status)
+	}
+	if credentials.loads != 1 || audio.checks != 1 {
+		t.Fatalf("loads = %d checks = %d, want one passive status read each", credentials.loads, audio.checks)
+	}
+	rendered := strings.Join(RenderLines(status), "\n")
+	for _, want := range []string{"LocalWhisper model", "missing local_whisper.model_path", "localwhisper runtime is not implemented yet", "Setup needs attention"} {
+		if !strings.Contains(rendered, want) {
+			t.Fatalf("rendered status missing %q:\n%s", want, rendered)
+		}
+	}
+	if strings.Contains(rendered, "sk-openai") || strings.Contains(rendered, "runtime ready") {
+		t.Fatalf("rendered status is misleading or exposed a secret:\n%s", rendered)
+	}
+}
+
+func TestServiceStatusReportsConfiguredLocalWhisperModelPathWithoutReadyClaim(t *testing.T) {
+	service := Service{
+		Credentials:  &fakeCredentialStore{secret: app.Secret{Value: "sk-openai"}},
+		AudioChecker: &fakeAudioChecker{status: ItemStatus{Name: "Microphone", State: StateReady, Message: "ready"}},
+		Config: app.Config{
+			Provider:           app.ProviderOpenAI,
+			TranscriptionModel: app.ModelRef{Provider: app.ProviderLocalWhisper, Name: "ggml-small.bin", Purpose: app.ModelPurposeTranscription},
+			ChatModel:          app.ModelRef{Provider: app.ProviderOpenAI, Name: app.DefaultChatModel, Purpose: app.ModelPurposeChat},
+			LocalWhisper:       app.LocalWhisperConfig{ModelPath: "/models/ggml-small.bin"},
+		},
+	}
+
+	status := service.Status(context.Background())
+	if status.Ready {
+		t.Fatalf("status ready = true, want false until localwhisper runtime is implemented: %+v", status)
+	}
+	rendered := strings.Join(RenderLines(status), "\n")
+	for _, want := range []string{"LocalWhisper model", "unknown", "configured in local_whisper.model_path", "/models/ggml-small.bin", "localwhisper runtime is not implemented yet"} {
+		if !strings.Contains(rendered, want) {
+			t.Fatalf("rendered status missing %q:\n%s", want, rendered)
+		}
+	}
+}
+
 func TestServiceStatusFallsBackToUnknownWithoutCheckers(t *testing.T) {
 	status := Service{}.Status(context.Background())
 	if status.Ready {

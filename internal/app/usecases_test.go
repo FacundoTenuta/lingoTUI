@@ -58,6 +58,26 @@ func TestServiceConnectChatGPTRuntimeIsNotImplemented(t *testing.T) {
 	}
 }
 
+func TestServiceConnectLocalWhisperRuntimeIsNotImplemented(t *testing.T) {
+	service := NewService(Dependencies{
+		Config:      &testutil.ConfigStore{Config: Config{Provider: ProviderLocalWhisper}},
+		Credentials: &testutil.CredentialStore{Secrets: map[ProviderID]Secret{ProviderLocalWhisper: {Value: "local-secret-not-used"}}},
+	})
+
+	result, err := service.Connect(context.Background())
+	if !errors.Is(err, ErrNotConfigured) {
+		t.Fatalf("error = %v, want %v", err, ErrNotConfigured)
+	}
+	for _, want := range []string{"localwhisper transcription config is accepted", "runtime is not implemented yet", "/connect remains OpenAI API-key only"} {
+		if !strings.Contains(err.Error(), want) {
+			t.Fatalf("error missing %q: %v", want, err)
+		}
+	}
+	if result.Connected {
+		t.Fatalf("result = %+v, must not connect localwhisper scaffold", result)
+	}
+}
+
 func TestServiceModelsUsesDefaultModels(t *testing.T) {
 	service := NewService(Dependencies{Config: &testutil.ConfigStore{}})
 
@@ -82,6 +102,27 @@ func TestServiceModelsDoesNotExposeChatGPTScaffoldModels(t *testing.T) {
 	}
 	if !strings.Contains(result.Message, "not implemented yet") {
 		t.Fatalf("message = %q, want not implemented guidance", result.Message)
+	}
+}
+
+func TestServiceModelsDoesNotClaimLocalWhisperRuntimeReady(t *testing.T) {
+	service := NewService(Dependencies{Config: &testutil.ConfigStore{Config: Config{
+		Provider:           ProviderOpenAI,
+		TranscriptionModel: ModelRef{Provider: ProviderLocalWhisper, Name: "ggml-small.bin", Purpose: ModelPurposeTranscription},
+		ChatModel:          ModelRef{Provider: ProviderOpenAI, Name: DefaultChatModel, Purpose: ModelPurposeChat},
+	}}})
+
+	result, err := service.Models(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(result.Models) != 0 {
+		t.Fatalf("models = %+v, want none for localwhisper scaffold", result.Models)
+	}
+	for _, want := range []string{"localwhisper", "runtime model listing is not implemented yet"} {
+		if !strings.Contains(result.Message, want) {
+			t.Fatalf("message = %q, want %q", result.Message, want)
+		}
 	}
 }
 

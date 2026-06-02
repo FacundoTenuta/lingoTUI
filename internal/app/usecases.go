@@ -83,6 +83,9 @@ func (s *Service) Connect(ctx context.Context) (Result, error) {
 	if cfg.Provider == ProviderChatGPT {
 		return s.result(CommandConnect, ""), fmt.Errorf("%w: ChatGPT Plus/Pro OAuth login is enabled, but ChatGPT/Codex runtime is not implemented yet; /connect remains OpenAI API-key only", ErrNotConfigured)
 	}
+	if cfg.Provider == ProviderLocalWhisper {
+		return s.result(CommandConnect, ""), fmt.Errorf("%w: localwhisper transcription config is accepted, but localwhisper runtime is not implemented yet; /connect remains OpenAI API-key only", ErrNotConfigured)
+	}
 	secret, err := s.deps.Credentials.Load(ctx, cfg.Provider)
 	if err != nil || secret.Empty() {
 		if err != nil {
@@ -101,6 +104,9 @@ func (s *Service) Models(ctx context.Context) (Result, error) {
 	}
 	if cfg.Provider == ProviderChatGPT {
 		return s.result(CommandModels, "ChatGPT Plus/Pro models are scaffolded but not implemented yet."), nil
+	}
+	if cfg.Provider == ProviderLocalWhisper || cfg.TranscriptionModel.Provider == ProviderLocalWhisper {
+		return s.result(CommandModels, "localwhisper transcription config is accepted, but runtime model listing is not implemented yet."), nil
 	}
 	models := []ModelRef{cfg.TranscriptionModel, cfg.ChatModel}
 	result := s.result(CommandModels, fmt.Sprintf("Transcription: %s; Chat: %s", cfg.TranscriptionModel.Name, cfg.ChatModel.Name))
@@ -132,15 +138,6 @@ func (s *Service) Stop(ctx context.Context) (Result, error) {
 	if s.deps.Recorder == nil {
 		return s.result(CommandStop, ""), fmt.Errorf("%w: recorder", ErrNotConfigured)
 	}
-	if s.deps.Transcriber == nil {
-		return s.result(CommandStop, ""), fmt.Errorf("%w: transcriber; run lingotui login openai or configure auth.json fallback, then run /connect before processing audio", ErrNotConfigured)
-	}
-	if s.deps.Chat == nil {
-		return s.result(CommandStop, ""), fmt.Errorf("%w: chat; run lingotui login openai or configure auth.json fallback, then run /connect before processing audio", ErrNotConfigured)
-	}
-	if s.deps.Context == nil {
-		return s.result(CommandStop, ""), fmt.Errorf("%w: context store", ErrNotConfigured)
-	}
 	cfg, err := s.loadConfig(ctx)
 	if err != nil {
 		return s.result(CommandStop, ""), err
@@ -149,6 +146,15 @@ func (s *Service) Stop(ctx context.Context) (Result, error) {
 	s.recording = false
 	if err != nil {
 		return s.result(CommandStop, ""), fmt.Errorf("stop recording: %w", err)
+	}
+	if s.deps.Transcriber == nil {
+		return s.result(CommandStop, ""), fmt.Errorf("%w: transcriber; %s", ErrNotConfigured, missingTranscriberGuidance(cfg))
+	}
+	if s.deps.Chat == nil {
+		return s.result(CommandStop, ""), fmt.Errorf("%w: chat; %s", ErrNotConfigured, missingChatGuidance(cfg))
+	}
+	if s.deps.Context == nil {
+		return s.result(CommandStop, ""), fmt.Errorf("%w: context store", ErrNotConfigured)
 	}
 	transcript, err := s.deps.Transcriber.Transcribe(ctx, file, cfg.TranscriptionModel)
 	if err != nil {
@@ -163,6 +169,20 @@ func (s *Service) Stop(ctx context.Context) (Result, error) {
 	result := s.result(CommandStop, "Processed recording and updated ES/EN/DE context.")
 	result.Context = recent
 	return result, nil
+}
+
+func missingTranscriberGuidance(cfg Config) string {
+	if cfg.TranscriptionModel.Provider == ProviderLocalWhisper || cfg.Provider == ProviderLocalWhisper {
+		return "localwhisper transcription runtime is not implemented yet; configure local_whisper for the upcoming runtime slice, but do not expect /stop to transcribe audio yet"
+	}
+	return "run lingotui login openai or configure auth.json fallback, then run /connect before processing audio"
+}
+
+func missingChatGuidance(cfg Config) string {
+	if cfg.ChatModel.Provider == ProviderChatGPT || cfg.Provider == ProviderChatGPT {
+		return "ChatGPT/Codex chat runtime is not implemented yet; OAuth login works, but /stop cannot summarize audio with ChatGPT yet"
+	}
+	return "run lingotui login openai or configure auth.json fallback, then run /connect before processing audio"
 }
 
 func (s *Service) Ask(ctx context.Context, question Question) (Result, error) {
@@ -220,36 +240,7 @@ func (s *Service) loadConfig(ctx context.Context) (Config, error) {
 	if err != nil {
 		return Config{}, fmt.Errorf("load config: %w", err)
 	}
-	return normalizeConfig(cfg), nil
-}
-
-func normalizeConfig(cfg Config) Config {
-	defaults := DefaultConfig()
-	if cfg.Provider == "" {
-		cfg.Provider = defaults.Provider
-	}
-	if cfg.TranscriptionModel.Provider == "" {
-		cfg.TranscriptionModel.Provider = cfg.Provider
-	}
-	if cfg.TranscriptionModel.Name == "" {
-		cfg.TranscriptionModel.Name = DefaultTranscriptionModel
-	}
-	if cfg.TranscriptionModel.Purpose == "" {
-		cfg.TranscriptionModel.Purpose = ModelPurposeTranscription
-	}
-	if cfg.ChatModel.Provider == "" {
-		cfg.ChatModel.Provider = cfg.Provider
-	}
-	if cfg.ChatModel.Name == "" {
-		cfg.ChatModel.Name = DefaultChatModel
-	}
-	if cfg.ChatModel.Purpose == "" {
-		cfg.ChatModel.Purpose = ModelPurposeChat
-	}
-	if cfg.CredentialStorage == "" {
-		cfg.CredentialStorage = CredentialStorageFile
-	}
-	return cfg
+	return NormalizeConfig(cfg), nil
 }
 
 func (s *Service) result(command CommandKind, message string) Result {

@@ -8,8 +8,9 @@ import (
 type ProviderID string
 
 const (
-	ProviderOpenAI  ProviderID = "openai"
-	ProviderChatGPT ProviderID = "chatgpt"
+	ProviderOpenAI       ProviderID = "openai"
+	ProviderChatGPT      ProviderID = "chatgpt"
+	ProviderLocalWhisper ProviderID = "localwhisper"
 )
 
 type CredentialKind string
@@ -100,11 +101,19 @@ type ModelRef struct {
 	Purpose  ModelPurpose `json:"purpose"`
 }
 
+type LocalWhisperConfig struct {
+	BinaryPath string   `json:"binary_path,omitempty"`
+	ModelPath  string   `json:"model_path,omitempty"`
+	Language   string   `json:"language,omitempty"`
+	ExtraArgs  []string `json:"extra_args,omitempty"`
+}
+
 type Config struct {
-	Provider           ProviderID `json:"provider"`
-	TranscriptionModel ModelRef   `json:"transcription_model"`
-	ChatModel          ModelRef   `json:"chat_model"`
-	CredentialStorage  string     `json:"credential_storage"`
+	Provider           ProviderID         `json:"provider"`
+	TranscriptionModel ModelRef           `json:"transcription_model"`
+	ChatModel          ModelRef           `json:"chat_model"`
+	CredentialStorage  string             `json:"credential_storage"`
+	LocalWhisper       LocalWhisperConfig `json:"local_whisper,omitempty"`
 }
 
 func DefaultConfig() Config {
@@ -114,6 +123,35 @@ func DefaultConfig() Config {
 		ChatModel:          ModelRef{Provider: ProviderOpenAI, Name: DefaultChatModel, Purpose: ModelPurposeChat},
 		CredentialStorage:  CredentialStorageFile,
 	}
+}
+
+func NormalizeConfig(cfg Config) Config {
+	defaults := DefaultConfig()
+	if cfg.Provider == "" {
+		cfg.Provider = defaults.Provider
+	}
+	if cfg.TranscriptionModel.Provider == "" {
+		cfg.TranscriptionModel.Provider = cfg.Provider
+	}
+	if cfg.TranscriptionModel.Name == "" {
+		cfg.TranscriptionModel.Name = DefaultTranscriptionModel
+	}
+	if cfg.TranscriptionModel.Purpose == "" {
+		cfg.TranscriptionModel.Purpose = ModelPurposeTranscription
+	}
+	if cfg.ChatModel.Provider == "" {
+		cfg.ChatModel.Provider = cfg.Provider
+	}
+	if cfg.ChatModel.Name == "" {
+		cfg.ChatModel.Name = DefaultChatModel
+	}
+	if cfg.ChatModel.Purpose == "" {
+		cfg.ChatModel.Purpose = ModelPurposeChat
+	}
+	if cfg.CredentialStorage == "" {
+		cfg.CredentialStorage = CredentialStorageFile
+	}
+	return cfg
 }
 
 type Secret struct{ Value string }

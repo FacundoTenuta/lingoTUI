@@ -31,11 +31,11 @@ func (s *FileStore) Load(context.Context) (app.Config, error) {
 	if err != nil {
 		return app.Config{}, err
 	}
-	cfg := Default()
+	var cfg app.Config
 	if err := json.Unmarshal(data, &cfg); err != nil {
 		return app.Config{}, err
 	}
-	return cfg, nil
+	return app.NormalizeConfig(cfg), nil
 }
 
 func (s *FileStore) Save(_ context.Context, cfg app.Config) error {

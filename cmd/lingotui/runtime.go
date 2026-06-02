@@ -61,12 +61,13 @@ func buildRuntimeWithOptions(baseDir string, options runtimeOptions) (tui.Model,
 		CredentialPath: credentialPath,
 		Credentials:    credentialStore,
 		AudioChecker:   options.audioChecker,
+		Config:         cfg,
 		Provider:       cfg.Provider,
 	}
 	setupLines := setup.RenderLines(setupService.Status(ctx))
 
 	var provider providerClient
-	if cfg.Provider != app.ProviderChatGPT {
+	if cfg.Provider != app.ProviderChatGPT && cfg.Provider != app.ProviderLocalWhisper {
 		secret, err := credentialStore.Load(ctx, cfg.Provider)
 		if err == nil && !secret.Empty() {
 			provider, err = options.newProvider(secret)
@@ -75,11 +76,21 @@ func buildRuntimeWithOptions(baseDir string, options runtimeOptions) (tui.Model,
 			}
 		}
 	}
+	var transcriber app.Transcriber
+	var chat app.Chat
+	if provider != nil {
+		if cfg.TranscriptionModel.Provider == cfg.Provider {
+			transcriber = provider
+		}
+		if cfg.ChatModel.Provider == cfg.Provider {
+			chat = provider
+		}
+	}
 
 	service := app.NewService(app.Dependencies{
 		Recorder:      options.newRecorder(),
-		Transcriber:   provider,
-		Chat:          provider,
+		Transcriber:   transcriber,
+		Chat:          chat,
 		Config:        configStore,
 		Credentials:   credentialStore,
 		Context:       memory.NewMemory(),
