@@ -23,6 +23,54 @@ command_exists() {
   command -v "$1" >/dev/null 2>&1
 }
 
+is_interactive() {
+  [ -t 0 ] && [ -t 1 ]
+}
+
+prompt_yes_no() {
+  prompt="$1"
+  printf '%s [y/N] ' "$prompt"
+  read -r answer || answer=""
+  case "$answer" in
+    y|Y|yes|YES|Yes)
+      return 0
+      ;;
+    *)
+      return 1
+      ;;
+  esac
+}
+
+maybe_install_whisper_cpp() {
+  if command_exists whisper-cli; then
+    info "whisper-cli is already installed: $(command -v whisper-cli)"
+    return 0
+  fi
+
+  warn "whisper-cli was not found. It is optional, but required for local Whisper transcription."
+  if ! command_exists brew; then
+    warn "Homebrew was not found. To use localwhisper, install whisper.cpp manually and make whisper-cli available on PATH."
+    return 0
+  fi
+
+  if ! is_interactive; then
+    warn "Non-interactive shell detected; skipping optional whisper-cpp install. Run: brew install whisper-cpp"
+    return 0
+  fi
+
+  if prompt_yes_no "Install whisper-cpp with Homebrew now?"; then
+    info "Installing whisper-cpp"
+    brew install whisper-cpp
+    if command_exists whisper-cli; then
+      info "whisper-cli installed: $(command -v whisper-cli)"
+    else
+      warn "whisper-cpp finished installing, but whisper-cli was not found on PATH. Restart your terminal or check Homebrew's output."
+    fi
+  else
+    warn "Skipping whisper-cpp install. You can install it later with: brew install whisper-cpp"
+  fi
+}
+
 shell_quote() {
   if printf '%s' "$1" | LC_ALL=C grep '[[:cntrl:]]' >/dev/null 2>&1; then
     fail "Go bin directory contains control characters, refusing to write it to a shell profile: $1"
@@ -122,4 +170,5 @@ case ":$PATH:" in
 esac
 
 info "Installed: $binary"
+maybe_install_whisper_cpp
 info "Run: lingotui"

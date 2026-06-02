@@ -19,7 +19,7 @@ From a local checkout, run the installer. By default it installs the latest publ
 ./install.sh
 ```
 
-The installer runs `go install`, detects Go's binary directory, and adds it to your shell profile when it is missing from `PATH`.
+The installer runs `go install`, detects Go's binary directory, and adds it to your shell profile when it is missing from `PATH`. It also checks for `whisper-cli`; when it is missing and Homebrew is available in an interactive shell, the installer asks whether to install optional `whisper-cpp` support for local transcription. The default answer is no. Non-interactive runs never prompt; install it later with `brew install whisper-cpp` if needed.
 
 To install a specific version:
 
