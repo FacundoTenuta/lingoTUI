@@ -24,7 +24,7 @@ The installer runs `go install`, detects Go's binary directory, and adds it to y
 To install a specific version:
 
 ```sh
-LINGOTUI_VERSION=v0.1.0 ./install.sh
+LINGOTUI_VERSION=v0.1.2 ./install.sh
 ```
 
 ### Local checkout
@@ -68,7 +68,7 @@ go install github.com/FacundoTenuta/lingoTUI/cmd/lingotui@latest
 To update to a specific version, set `LINGOTUI_VERSION`:
 
 ```sh
-LINGOTUI_VERSION=v0.1.0 lingotui update
+LINGOTUI_VERSION=v0.1.2 lingotui update
 ```
 
 ## First-run onboarding
