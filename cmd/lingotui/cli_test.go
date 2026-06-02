@@ -57,7 +57,7 @@ func TestRunCLIReturnsNonZeroWhenTUILaunchFails(t *testing.T) {
 
 func TestRunCLIUpdateRunsGoInstallLatest(t *testing.T) {
 	t.Setenv("LINGOTUI_VERSION", "")
-	runner := &recordingCommandRunner{}
+	runner := &recordingCommandRunner{output: []byte("compiler warning that should stay hidden")}
 	var launched bool
 	var stdout bytes.Buffer
 
@@ -76,8 +76,13 @@ func TestRunCLIUpdateRunsGoInstallLatest(t *testing.T) {
 		t.Fatal("TUI launcher was called")
 	}
 	assertCommand(t, runner, "go", "install", updatePackage+"@latest")
-	if !strings.Contains(stdout.String(), "lingotui updated") {
-		t.Fatalf("stdout = %q, want update confirmation", stdout.String())
+	for _, want := range []string{"Updating lingotui to latest...", "lingotui updated"} {
+		if !strings.Contains(stdout.String(), want) {
+			t.Fatalf("stdout = %q, want %q", stdout.String(), want)
+		}
+	}
+	if strings.Contains(stdout.String(), "compiler warning") {
+		t.Fatalf("stdout exposed successful go install output: %q", stdout.String())
 	}
 }
 
@@ -97,10 +102,11 @@ func TestRunCLIUpdateUsesVersionOverride(t *testing.T) {
 }
 
 func TestRunCLIUpdateFailureReturnsNonZeroAndWritesStderr(t *testing.T) {
-	runner := &recordingCommandRunner{err: errors.New("install failed")}
+	runner := &recordingCommandRunner{output: []byte("download failed"), err: errors.New("install failed")}
+	var stdout bytes.Buffer
 	var stderr bytes.Buffer
 
-	code := runCLI([]string{"update"}, &bytes.Buffer{}, &stderr, cliOptions{
+	code := runCLI([]string{"update"}, &stdout, &stderr, cliOptions{
 		launchTUI:  func() error { return nil },
 		runCommand: runner.run,
 	})
@@ -108,8 +114,16 @@ func TestRunCLIUpdateFailureReturnsNonZeroAndWritesStderr(t *testing.T) {
 	if code == 0 {
 		t.Fatal("code = 0, want non-zero")
 	}
-	if !strings.Contains(stderr.String(), "lingotui update: install failed") {
-		t.Fatalf("stderr = %q, want update failure", stderr.String())
+	if !strings.Contains(stdout.String(), "Updating lingotui") {
+		t.Fatalf("stdout = %q, want loading state", stdout.String())
+	}
+	for _, want := range []string{"lingotui update: install failed", "download failed"} {
+		if !strings.Contains(stderr.String(), want) {
+			t.Fatalf("stderr = %q, want %q", stderr.String(), want)
+		}
+	}
+	if strings.Contains(stdout.String(), "lingotui updated") {
+		t.Fatalf("stdout incorrectly reported success: %q", stdout.String())
 	}
 }
 
@@ -340,6 +354,7 @@ type recordingCommandRunner struct {
 	called bool
 	name   string
 	args   []string
+	output []byte
 	err    error
 }
 
@@ -375,11 +390,11 @@ func (s *recordingCredentialStore) Load(context.Context, app.ProviderID) (app.Se
 
 func (s *recordingCredentialStore) Delete(context.Context, app.ProviderID) error { return s.err }
 
-func (r *recordingCommandRunner) run(name string, args ...string) error {
+func (r *recordingCommandRunner) run(name string, args ...string) ([]byte, error) {
 	r.called = true
 	r.name = name
 	r.args = append([]string(nil), args...)
-	return r.err
+	return r.output, r.err
 }
 
 func assertCommand(t *testing.T, runner *recordingCommandRunner, wantName string, wantArgs ...string) {

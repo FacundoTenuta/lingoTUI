@@ -19,7 +19,7 @@ var errCredentialStoreUnavailable = errors.New("credential store unavailable")
 var version = "dev"
 
 type tuiLauncher func() error
-type commandRunner func(name string, args ...string) error
+type commandRunner func(name string, args ...string) ([]byte, error)
 type loginHandler func(context.Context, io.Reader, io.Writer) error
 
 type cliOptions struct {
@@ -63,7 +63,9 @@ func runCLI(args []string, stdout, stderr io.Writer, options cliOptions) int {
 			printUsage(stderr)
 			return 1
 		}
-		if err := runSelfUpdate(options.runCommand); err != nil {
+		version := updateVersion()
+		fmt.Fprintf(stdout, "Updating lingotui to %s...\n", version)
+		if err := runSelfUpdate(options.runCommand, version); err != nil {
 			fmt.Fprintf(stderr, "lingotui update: %v\n", err)
 			return 1
 		}
