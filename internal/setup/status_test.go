@@ -98,7 +98,7 @@ func TestServiceStatusReportsChatGPTOAuthCredentialReadyWithoutSecrets(t *testin
 		t.Fatalf("loads = %d credentialLoads = %d, want old=0 typed=1", credentials.loads, credentials.credentialLoads)
 	}
 	rendered := strings.Join(RenderLines(status), "\n")
-	for _, want := range []string{"ChatGPT Plus/Pro credentials", "configured via typed OAuth credential ([redacted])", "OAuth/Codex provider use is not implemented yet"} {
+	for _, want := range []string{"ChatGPT Plus/Pro credentials", "configured via typed OAuth credential ([redacted])", "ChatGPT/Codex runtime is not implemented yet"} {
 		if !strings.Contains(rendered, want) {
 			t.Fatalf("rendered status missing %q:\n%s", want, rendered)
 		}
@@ -127,7 +127,7 @@ func TestServiceStatusReportsChatGPTOAuthCredentialMissingWithoutOldLoad(t *test
 		t.Fatalf("loads = %d credentialLoads = %d, want old=0 typed=1", credentials.loads, credentials.credentialLoads)
 	}
 	rendered := strings.Join(RenderLines(status), "\n")
-	for _, want := range []string{"missing", "lingotui login chatgpt", "OAuth/Codex provider use is not implemented yet"} {
+	for _, want := range []string{"missing", "lingotui login chatgpt", "ChatGPT/Codex runtime is not implemented yet"} {
 		if !strings.Contains(rendered, want) {
 			t.Fatalf("rendered status missing %q:\n%s", want, rendered)
 		}
@@ -151,7 +151,7 @@ func TestServiceStatusReportsChatGPTTypedStoreUnsupportedWithoutOldLoad(t *testi
 		t.Fatalf("old credential loads = %d, want 0", credentials.loads)
 	}
 	rendered := strings.Join(RenderLines(status), "\n")
-	for _, want := range []string{"missing typed OAuth credential store", "lingotui login chatgpt", "OAuth/Codex provider use is not implemented yet"} {
+	for _, want := range []string{"missing typed OAuth credential store", "lingotui login chatgpt", "ChatGPT/Codex runtime is not implemented yet"} {
 		if !strings.Contains(rendered, want) {
 			t.Fatalf("rendered status missing %q:\n%s", want, rendered)
 		}

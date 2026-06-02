@@ -38,7 +38,7 @@ func TestServiceConnectMissingCredentialIsActionable(t *testing.T) {
 	}
 }
 
-func TestServiceConnectChatGPTIsNotImplemented(t *testing.T) {
+func TestServiceConnectChatGPTRuntimeIsNotImplemented(t *testing.T) {
 	service := NewService(Dependencies{
 		Config:      &testutil.ConfigStore{Config: Config{Provider: ProviderChatGPT}},
 		Credentials: &testutil.CredentialStore{Secrets: map[ProviderID]Secret{ProviderChatGPT: {Value: "oauth-token"}}},
@@ -48,7 +48,7 @@ func TestServiceConnectChatGPTIsNotImplemented(t *testing.T) {
 	if !errors.Is(err, ErrNotConfigured) {
 		t.Fatalf("error = %v, want %v", err, ErrNotConfigured)
 	}
-	for _, want := range []string{"ChatGPT Plus/Pro OAuth", "not implemented yet", "does not open a browser"} {
+	for _, want := range []string{"ChatGPT Plus/Pro OAuth login is enabled", "ChatGPT/Codex runtime is not implemented yet", "/connect remains OpenAI API-key only"} {
 		if !strings.Contains(err.Error(), want) {
 			t.Fatalf("error missing %q: %v", want, err)
 		}

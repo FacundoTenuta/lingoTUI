@@ -81,7 +81,7 @@ func (s *Service) Connect(ctx context.Context) (Result, error) {
 		return s.result(CommandConnect, ""), err
 	}
 	if cfg.Provider == ProviderChatGPT {
-		return s.result(CommandConnect, ""), fmt.Errorf("%w: ChatGPT Plus/Pro OAuth is scaffolded but not implemented yet; lingotui login chatgpt does not open a browser or save credentials", ErrNotConfigured)
+		return s.result(CommandConnect, ""), fmt.Errorf("%w: ChatGPT Plus/Pro OAuth login is enabled, but ChatGPT/Codex runtime is not implemented yet; /connect remains OpenAI API-key only", ErrNotConfigured)
 	}
 	secret, err := s.deps.Credentials.Load(ctx, cfg.Provider)
 	if err != nil || secret.Empty() {

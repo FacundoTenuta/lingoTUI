@@ -425,6 +425,9 @@ func TestLoginWithStoreChatGPTUsesInjectedFlowWithoutReadingStdinOrExposingToken
 	if !strings.Contains(stdout.String(), "OAuth credential saved") {
 		t.Fatalf("stdout = %q, want success message", stdout.String())
 	}
+	if !strings.Contains(stdout.String(), "ChatGPT/Codex runtime is not enabled yet") {
+		t.Fatalf("stdout = %q, want runtime boundary message", stdout.String())
+	}
 }
 
 func TestLoginWithStoreChatGPTRequiresTypedCredentialStoreBeforeFlow(t *testing.T) {
@@ -462,23 +465,52 @@ func TestLoginWithStoreChatGPTFlowErrorSavesNothingAndRedactsTokens(t *testing.T
 	}
 }
 
-func TestDefaultChatGPTLoginFlowFromEnvDisabledReturnsPlaceholderWithoutSideEffects(t *testing.T) {
-	t.Setenv(experimentalChatGPTOAuthEnv, "")
+func TestDefaultChatGPTLoginPathUsesOAuthFlowFactoryWithoutReadingStdinOrExposingTokens(t *testing.T) {
 	store := &recordingAuthCredentialStore{}
 	stdin := &failingReader{err: errors.New("stdin should not be read")}
+	flow := &fakeChatGPTLoginFlow{
+		credential: app.Credential{
+			Provider: app.ProviderChatGPT,
+			Kind:     app.CredentialKindOAuth,
+			OAuth: app.OAuthCredential{
+				AccessToken:  app.Secret{Value: "access-token"},
+				RefreshToken: app.Secret{Value: "refresh-token"},
+			},
+		},
+	}
+	var factoryCalls int
 	var stdout bytes.Buffer
+	oldFactory := defaultChatGPTLoginFlowFactory
+	defaultChatGPTLoginFlowFactory = func() (chatGPTLoginFlow, error) {
+		factoryCalls++
+		return flow, nil
+	}
+	t.Cleanup(func() { defaultChatGPTLoginFlowFactory = oldFactory })
 
 	err := loginWithStoreWithChatGPTFlowFactory(context.Background(), stdin, &stdout, store, "chatgpt", nil)
-	if !errors.Is(err, errChatGPTOAuthNotImplemented) {
-		t.Fatalf("error = %v, want not implemented", err)
+	if err != nil {
+		t.Fatal(err)
 	}
-	if stdin.reads != 0 || store.credentialSaves != 0 || stdout.String() != "" {
-		t.Fatalf("side effects: stdin reads=%d saves=%d stdout=%q", stdin.reads, store.credentialSaves, stdout.String())
+	if factoryCalls != 1 || !flow.called {
+		t.Fatalf("factory calls=%d flow called=%v, want default OAuth flow path", factoryCalls, flow.called)
+	}
+	if stdin.reads != 0 {
+		t.Fatalf("stdin reads = %d, want 0", stdin.reads)
+	}
+	if store.credentialSaves != 1 {
+		t.Fatalf("credential saves = %d, want 1", store.credentialSaves)
+	}
+	for _, secret := range []string{"access-token", "refresh-token"} {
+		if strings.Contains(stdout.String(), secret) {
+			t.Fatalf("stdout exposed token %q: %q", secret, stdout.String())
+		}
+	}
+	if !strings.Contains(stdout.String(), "ChatGPT/Codex runtime is not enabled yet") {
+		t.Fatalf("stdout = %q, want runtime boundary message", stdout.String())
 	}
 }
 
-func TestLoginWithStoreChatGPTUsesExperimentalFactoryWhenEnabledWithoutReadingStdinOrExposingTokens(t *testing.T) {
-	t.Setenv(experimentalChatGPTOAuthEnv, "1")
+func TestLoginWithStoreChatGPTUsesInjectedFactoryWithoutReadingStdinOrExposingTokens(t *testing.T) {
 	store := &recordingAuthCredentialStore{}
 	stdin := &failingReader{err: errors.New("stdin should not be read")}
 	flow := &fakeChatGPTLoginFlow{
@@ -502,7 +534,7 @@ func TestLoginWithStoreChatGPTUsesExperimentalFactoryWhenEnabledWithoutReadingSt
 		t.Fatal(err)
 	}
 	if factoryCalls != 1 || !flow.called {
-		t.Fatalf("factory calls=%d flow called=%v, want experimental flow path", factoryCalls, flow.called)
+		t.Fatalf("factory calls=%d flow called=%v, want injected flow path", factoryCalls, flow.called)
 	}
 	if stdin.reads != 0 {
 		t.Fatalf("stdin reads = %d, want 0", stdin.reads)
@@ -514,8 +546,8 @@ func TestLoginWithStoreChatGPTUsesExperimentalFactoryWhenEnabledWithoutReadingSt
 	}
 }
 
-func TestExperimentalChatGPTLoginFlowUsesVerifiedOpencodeOAuthConstants(t *testing.T) {
-	flow := newExperimentalChatGPTLoginFlow(nil, nil, nil)
+func TestChatGPTLoginFlowUsesVerifiedOpencodeOAuthConstants(t *testing.T) {
+	flow := newChatGPTLoginFlow(nil, nil, nil)
 
 	if flow.ClientID != chatGPTOAuthClientID {
 		t.Fatalf("client ID = %q, want verified opencode client ID", flow.ClientID)

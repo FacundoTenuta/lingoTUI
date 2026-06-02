@@ -57,7 +57,7 @@ Save your OpenAI API key to macOS Keychain before using OpenAI-backed flows:
 lingotui login openai
 ```
 
-`lingotui login` still defaults to the OpenAI API-key prompt for compatibility. `lingotui login chatgpt` is reserved for future ChatGPT Plus/Pro browser OAuth support; today it exits with a not-implemented message, does not open a browser, and saves nothing.
+`lingotui login` still defaults to the OpenAI API-key prompt for compatibility. `lingotui login chatgpt` opens the ChatGPT Plus/Pro browser OAuth flow and saves the resulting OAuth credential. ChatGPT/Codex runtime and `/connect` support are not enabled yet.
 
 ## Update
 
@@ -139,7 +139,7 @@ The old API-key-only format is still loadable for compatibility:
 }
 ```
 
-OAuth credential records are scaffolded for future ChatGPT Plus/Pro support, but no browser OAuth flow, token exchange, or Codex request is implemented yet. Access and refresh tokens are redacted by app types and must not be printed.
+OAuth credential records are used by `lingotui login chatgpt` to store ChatGPT Plus/Pro browser OAuth credentials. Codex runtime requests are not implemented yet. Access and refresh tokens are redacted by app types and must not be printed.
 
 Secrets are loaded from Keychain first, then the `auth.json` fallback, and are redacted by the app types. Do not commit `auth.json`.
 
@@ -181,7 +181,7 @@ Provider calls may incur OpenAI costs. The adapter avoids logging request header
 
 ## ChatGPT Plus/Pro scaffold
 
-ChatGPT Plus/Pro is registered as a separate future provider, but it intentionally exposes no usable auth methods or models yet. It is not usable yet: `lingotui login chatgpt` intentionally returns a not-implemented error, does not open a browser, does not call ChatGPT/OpenAI auth endpoints, and does not save tokens.
+ChatGPT Plus/Pro is registered as a separate future provider, but it intentionally exposes no usable provider auth methods or models yet. `lingotui login chatgpt` can complete browser OAuth login and save a credential; ChatGPT/Codex runtime, `/connect`, and provider model use remain unimplemented.
 
 ## Privacy and cost boundaries
 
@@ -190,12 +190,12 @@ ChatGPT Plus/Pro is registered as a separate future provider, but it intentional
 - Recent transcript and summary context is in memory by default.
 - Audio files are temporary by default.
 - OpenAI API calls happen only through the OpenAI API-key provider adapter and are triggered by explicit user commands.
-- ChatGPT Plus/Pro browser OAuth and Codex requests are scaffolded only and are not executed.
+- ChatGPT Plus/Pro browser OAuth only runs from `lingotui login chatgpt`; ChatGPT/Codex runtime requests are not executed.
 - Default tests do not make network calls or access audio devices.
 
 ## Deferred roadmap seams
 
 - Robust system audio and combined microphone/system capture.
-- Implement ChatGPT Plus/Pro browser OAuth only after explicit product/security validation.
+- Implement ChatGPT/Codex runtime requests after OAuth credential storage.
 - Additional provider registry entries.
 - Stricter real-time translation beyond the current record/process flow.

@@ -127,16 +127,16 @@ func (s Service) credentialStatus(ctx context.Context, provider app.ProviderID) 
 func chatGPTCredentialStatus(ctx context.Context, item ItemStatus, store CredentialStore) ItemStatus {
 	authStore, ok := store.(app.AuthCredentialStore)
 	if !ok {
-		item.Message = "missing typed OAuth credential store; run lingotui login chatgpt when available; OAuth/Codex provider use is not implemented yet"
+		item.Message = "missing typed OAuth credential store; run lingotui login chatgpt; ChatGPT/Codex runtime is not implemented yet"
 		return item
 	}
 	credential, err := authStore.LoadCredential(ctx, app.ProviderChatGPT, app.CredentialKindOAuth)
 	if err != nil || (credential.OAuth.RefreshToken.Empty() && credential.OAuth.AccessToken.Empty()) {
-		item.Message = "missing; run lingotui login chatgpt; OAuth/Codex provider use is not implemented yet"
+		item.Message = "missing; run lingotui login chatgpt; ChatGPT/Codex runtime is not implemented yet"
 		return item
 	}
 	item.State = StateReady
-	item.Message = "configured via typed OAuth credential ([redacted]); OAuth/Codex provider use is not implemented yet"
+	item.Message = "configured via typed OAuth credential ([redacted]); ChatGPT/Codex runtime is not implemented yet"
 	return item
 }
 
@@ -149,7 +149,7 @@ func credentialName(provider app.ProviderID) string {
 
 func credentialUnavailableMessage(provider app.ProviderID) string {
 	if provider == app.ProviderChatGPT {
-		return "credential store unavailable; ChatGPT Plus/Pro OAuth is scaffolded but not implemented yet"
+		return "credential store unavailable; run lingotui login chatgpt; ChatGPT/Codex runtime is not implemented yet"
 	}
 	return "credential store unavailable; run lingotui login openai or configure auth.json fallback before /connect"
 }
