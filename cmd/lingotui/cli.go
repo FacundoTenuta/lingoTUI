@@ -17,7 +17,7 @@ import (
 )
 
 var errCredentialStoreUnavailable = errors.New("credential store unavailable")
-var errChatGPTOAuthNotImplemented = errors.New("ChatGPT Plus/Pro OAuth login is not implemented yet")
+var errChatGPTOAuthNotImplemented = errors.New("ChatGPT Plus/Pro OAuth login flow is unavailable")
 
 const chatGPTOAuthClientID = "app_EMoamEEZ73f0CkXaXp7hrann"
 const chatGPTOAuthEndpoint = "https://auth.openai.com/oauth/authorize"
@@ -265,7 +265,7 @@ func loginChatGPT(ctx context.Context, stdout io.Writer, store app.CredentialSto
 	if flow == nil {
 		flow = placeholderChatGPTLoginFlow{}
 	}
-	fmt.Fprintln(stdout, "ChatGPT Plus/Pro OAuth login is enabled; ChatGPT/Codex runtime is not enabled yet.")
+	fmt.Fprintln(stdout, "ChatGPT Plus/Pro OAuth login is enabled. OpenAI remains the default runtime; use manual config opt-in for experimental ChatGPT/Codex chat.")
 	if err := flow.Login(ctx, stdout, authStore); err != nil {
 		if errors.Is(err, errChatGPTOAuthNotImplemented) {
 			return err
@@ -273,6 +273,7 @@ func loginChatGPT(ctx context.Context, stdout io.Writer, store app.CredentialSto
 		return fmt.Errorf("ChatGPT OAuth login failed; no credentials saved")
 	}
 	fmt.Fprintln(stdout, "ChatGPT Plus/Pro OAuth credential saved.")
+	fmt.Fprintln(stdout, "To opt in manually, set chat_model.provider to \"chatgpt\" in ~/Library/Application Support/lingotui/config.json.")
 	return nil
 }
 

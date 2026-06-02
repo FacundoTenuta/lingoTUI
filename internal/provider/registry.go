@@ -36,7 +36,7 @@ func OpenAI() Provider {
 func ChatGPT() Provider {
 	return Provider{
 		ID:   app.ProviderChatGPT,
-		Name: "ChatGPT Plus/Pro (scaffolded, not implemented)",
+		Name: "ChatGPT Plus/Pro (manual opt-in)",
 	}
 }
 

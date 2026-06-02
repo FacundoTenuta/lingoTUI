@@ -57,7 +57,7 @@ Save your OpenAI API key to macOS Keychain before using OpenAI-backed flows:
 lingotui login openai
 ```
 
-`lingotui login` still defaults to the OpenAI API-key prompt for compatibility. `lingotui login chatgpt` opens the ChatGPT Plus/Pro browser OAuth flow and saves the resulting OAuth credential. ChatGPT/Codex runtime and `/connect` support are not enabled yet.
+`lingotui login` still defaults to the OpenAI API-key prompt for compatibility. OpenAI remains the default runtime. `lingotui login chatgpt` opens the ChatGPT Plus/Pro browser OAuth flow and saves the resulting OAuth credential. ChatGPT/Codex chat is available only as a manual, experimental opt-in when paired with manual config changes.
 
 ## Update
 
@@ -139,7 +139,7 @@ The old API-key-only format is still loadable for compatibility:
 }
 ```
 
-OAuth credential records are used by `lingotui login chatgpt` to store ChatGPT Plus/Pro browser OAuth credentials. Codex runtime requests are not implemented yet. Access and refresh tokens are redacted by app types and must not be printed.
+OAuth credential records are used by `lingotui login chatgpt` to store ChatGPT Plus/Pro browser OAuth credentials. Access and refresh tokens are redacted by app types and must not be printed.
 
 Secrets are loaded from Keychain first, then the `auth.json` fallback, and are redacted by the app types. Do not commit `auth.json`.
 
@@ -179,9 +179,40 @@ LINGOTUI_OPENAI_API_KEY=sk-... LINGOTUI_OPENAI_TRANSCRIBE=1 go test ./internal/p
 
 Provider calls may incur OpenAI costs. The adapter avoids logging request headers and redacts the configured API key from provider error messages.
 
-## ChatGPT Plus/Pro scaffold
+## Manual localwhisper + ChatGPT opt-in
 
-ChatGPT Plus/Pro is registered as a separate future provider, but it intentionally exposes no usable provider auth methods or models yet. `lingotui login chatgpt` can complete browser OAuth login and save a credential; ChatGPT/Codex runtime, `/connect`, and provider model use remain unimplemented.
+The default runtime is still OpenAI. The mixed localwhisper transcription plus ChatGPT/Codex chat runtime is experimental and requires manual opt-in until a `lingotui config` command exists.
+
+Quick path:
+
+1. Install `whisper-cli` outside lingoTUI and download a compatible local Whisper model file.
+2. Run `lingotui login chatgpt` to save the ChatGPT Plus/Pro OAuth credential.
+3. Edit `~/Library/Application Support/lingotui/config.json` manually.
+4. Run `lingotui`, then `/connect`, `/record mic`, and `/stop`.
+
+Example `config.json`:
+
+```json
+{
+  "transcription_model": {
+    "provider": "localwhisper",
+    "name": "ggml-small.bin",
+    "purpose": "transcription"
+  },
+  "chat_model": {
+    "provider": "chatgpt",
+    "name": "codex",
+    "purpose": "chat"
+  },
+  "local_whisper": {
+    "binary_path": "/opt/homebrew/bin/whisper-cli",
+    "model_path": "/Users/you/models/ggml-small.bin",
+    "language": "es"
+  }
+}
+```
+
+`local_whisper.binary_path` can be omitted when `whisper-cli` is on `PATH`; set it only when you need an absolute binary path. `local_whisper.model_path` must point to a local model file, but lingoTUI does not check that file until `/stop` processes audio.
 
 ## Privacy and cost boundaries
 
@@ -189,13 +220,13 @@ ChatGPT Plus/Pro is registered as a separate future provider, but it intentional
 - Startup and onboarding do not start ffmpeg, request/record microphone audio, or call OpenAI.
 - Recent transcript and summary context is in memory by default.
 - Audio files are temporary by default.
-- OpenAI API calls happen only through the OpenAI API-key provider adapter and are triggered by explicit user commands.
-- ChatGPT Plus/Pro browser OAuth only runs from `lingotui login chatgpt`; ChatGPT/Codex runtime requests are not executed.
+- OpenAI API calls are the default and are triggered by explicit user commands.
+- ChatGPT Plus/Pro browser OAuth only runs from `lingotui login chatgpt`; ChatGPT/Codex runtime requests require the manual opt-in config above.
 - Default tests do not make network calls or access audio devices.
 
 ## Deferred roadmap seams
 
 - Robust system audio and combined microphone/system capture.
-- Implement ChatGPT/Codex runtime requests after OAuth credential storage.
+- Add a `lingotui config` command for provider/model selection.
 - Additional provider registry entries.
 - Stricter real-time translation beyond the current record/process flow.

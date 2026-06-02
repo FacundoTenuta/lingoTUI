@@ -425,8 +425,10 @@ func TestLoginWithStoreChatGPTUsesInjectedFlowWithoutReadingStdinOrExposingToken
 	if !strings.Contains(stdout.String(), "OAuth credential saved") {
 		t.Fatalf("stdout = %q, want success message", stdout.String())
 	}
-	if !strings.Contains(stdout.String(), "ChatGPT/Codex runtime is not enabled yet") {
-		t.Fatalf("stdout = %q, want runtime boundary message", stdout.String())
+	for _, want := range []string{"OpenAI remains the default runtime", "manual config opt-in", "chat_model.provider"} {
+		if !strings.Contains(stdout.String(), want) {
+			t.Fatalf("stdout = %q, want %q", stdout.String(), want)
+		}
 	}
 }
 
@@ -505,8 +507,10 @@ func TestDefaultChatGPTLoginPathUsesOAuthFlowFactoryWithoutReadingStdinOrExposin
 			t.Fatalf("stdout exposed token %q: %q", secret, stdout.String())
 		}
 	}
-	if !strings.Contains(stdout.String(), "ChatGPT/Codex runtime is not enabled yet") {
-		t.Fatalf("stdout = %q, want runtime boundary message", stdout.String())
+	for _, want := range []string{"OpenAI remains the default runtime", "manual config opt-in"} {
+		if !strings.Contains(stdout.String(), want) {
+			t.Fatalf("stdout = %q, want %q", stdout.String(), want)
+		}
 	}
 }
 
