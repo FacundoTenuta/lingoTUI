@@ -211,17 +211,22 @@ func TestRunCLILoginCallsHandler(t *testing.T) {
 	}{
 		{name: "default target", args: []string{"login"}, wantTarget: ""},
 		{name: "openai target", args: []string{"login", "openai"}, wantTarget: "openai"},
+		{name: "chatgpt target", args: []string{"login", "chatgpt"}, wantTarget: "chatgpt"},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			runner := &recordingCommandRunner{}
 			login := &recordingLoginHandler{}
+			var launched bool
 			var stdout bytes.Buffer
 			stdin := strings.NewReader("sk-test\n")
 
 			code := runCLI(tt.args, &stdout, &bytes.Buffer{}, cliOptions{
-				launchTUI:  func() error { return nil },
+				launchTUI: func() error {
+					launched = true
+					return nil
+				},
 				runCommand: runner.run,
 				stdin:      stdin,
 				login:      login.run,
@@ -238,6 +243,9 @@ func TestRunCLILoginCallsHandler(t *testing.T) {
 			}
 			if runner.called {
 				t.Fatalf("command runner was called: %+v", runner)
+			}
+			if launched {
+				t.Fatal("TUI launcher was called")
 			}
 		})
 	}
@@ -378,16 +386,78 @@ func TestLoginWithStoreOpenAISavesAPIKeyWithoutExposingSecret(t *testing.T) {
 	}
 }
 
-func TestLoginWithStoreChatGPTNotImplementedSavesNothing(t *testing.T) {
+func TestLoginWithStoreChatGPTUsesInjectedFlowWithoutReadingStdinOrExposingTokens(t *testing.T) {
+	store := &recordingAuthCredentialStore{}
+	flow := &fakeChatGPTLoginFlow{
+		credential: app.Credential{
+			Provider: app.ProviderChatGPT,
+			Kind:     app.CredentialKindOAuth,
+			OAuth: app.OAuthCredential{
+				AccessToken:  app.Secret{Value: "access-token"},
+				RefreshToken: app.Secret{Value: "refresh-token"},
+			},
+		},
+	}
+	var stdout bytes.Buffer
+	stdin := &failingReader{err: errors.New("stdin should not be read")}
+
+	if err := loginWithStoreWithChatGPTFlow(context.Background(), stdin, &stdout, store, "chatgpt", flow); err != nil {
+		t.Fatal(err)
+	}
+	if stdin.reads != 0 {
+		t.Fatalf("stdin reads = %d, want 0", stdin.reads)
+	}
+	if !flow.called {
+		t.Fatal("ChatGPT login flow was not called")
+	}
+	if store.credentialSaves != 1 {
+		t.Fatalf("credential saves = %d, want 1", store.credentialSaves)
+	}
+	if store.credential.Provider != app.ProviderChatGPT || store.credential.Kind != app.CredentialKindOAuth {
+		t.Fatalf("saved credential = %+v, want chatgpt oauth", store.credential)
+	}
+	for _, secret := range []string{"access-token", "refresh-token"} {
+		if strings.Contains(stdout.String(), secret) {
+			t.Fatalf("stdout exposed token %q: %q", secret, stdout.String())
+		}
+	}
+	if !strings.Contains(stdout.String(), "OAuth credential saved") {
+		t.Fatalf("stdout = %q, want success message", stdout.String())
+	}
+}
+
+func TestLoginWithStoreChatGPTRequiresTypedCredentialStoreBeforeFlow(t *testing.T) {
 	store := &recordingCredentialStore{}
+	flow := &fakeChatGPTLoginFlow{}
 	var stdout bytes.Buffer
 
-	err := loginWithStore(context.Background(), strings.NewReader("ignored\n"), &stdout, store, "chatgpt")
-	if err == nil || !strings.Contains(err.Error(), "not implemented yet") {
-		t.Fatalf("error = %v, want not implemented", err)
+	err := loginWithStoreWithChatGPTFlow(context.Background(), strings.NewReader("ignored\n"), &stdout, store, "chatgpt", flow)
+	if err == nil || !strings.Contains(err.Error(), "typed credential store") {
+		t.Fatalf("error = %v, want typed credential store", err)
 	}
-	if store.saves != 0 || stdout.String() != "" {
-		t.Fatalf("side effects: saves=%d stdout=%q", store.saves, stdout.String())
+	if flow.called || store.saves != 0 || stdout.String() != "" {
+		t.Fatalf("side effects: flow=%v saves=%d stdout=%q", flow.called, store.saves, stdout.String())
+	}
+}
+
+func TestLoginWithStoreChatGPTFlowErrorSavesNothingAndRedactsTokens(t *testing.T) {
+	store := &recordingAuthCredentialStore{}
+	flow := &fakeChatGPTLoginFlow{err: errors.New("exchange failed with access-token refresh-token")}
+	var stdout bytes.Buffer
+
+	err := loginWithStoreWithChatGPTFlow(context.Background(), strings.NewReader("ignored\n"), &stdout, store, "chatgpt", flow)
+	if err == nil || !strings.Contains(err.Error(), "ChatGPT OAuth login failed") {
+		t.Fatalf("error = %v, want ChatGPT OAuth failure", err)
+	}
+	if store.credentialSaves != 0 {
+		t.Fatalf("credential saves = %d, want 0", store.credentialSaves)
+	}
+	for _, output := range []string{stdout.String(), err.Error()} {
+		for _, secret := range []string{"access-token", "refresh-token"} {
+			if strings.Contains(output, secret) {
+				t.Fatalf("output exposed token %q: %q", secret, output)
+			}
+		}
 	}
 }
 
@@ -447,6 +517,53 @@ func (s *recordingCredentialStore) Load(context.Context, app.ProviderID) (app.Se
 }
 
 func (s *recordingCredentialStore) Delete(context.Context, app.ProviderID) error { return s.err }
+
+type recordingAuthCredentialStore struct {
+	recordingCredentialStore
+	credential      app.Credential
+	credentialSaves int
+}
+
+func (s *recordingAuthCredentialStore) SaveCredential(_ context.Context, credential app.Credential) error {
+	if s.err != nil {
+		return s.err
+	}
+	s.credentialSaves++
+	s.credential = credential
+	return nil
+}
+
+func (s *recordingAuthCredentialStore) LoadCredential(context.Context, app.ProviderID, app.CredentialKind) (app.Credential, error) {
+	return s.credential, s.err
+}
+
+func (s *recordingAuthCredentialStore) DeleteCredential(context.Context, app.ProviderID, app.CredentialKind) error {
+	return s.err
+}
+
+type fakeChatGPTLoginFlow struct {
+	credential app.Credential
+	err        error
+	called     bool
+}
+
+func (f *fakeChatGPTLoginFlow) Login(ctx context.Context, _ io.Writer, store app.AuthCredentialStore) error {
+	f.called = true
+	if f.err != nil {
+		return f.err
+	}
+	return store.SaveCredential(ctx, f.credential)
+}
+
+type failingReader struct {
+	err   error
+	reads int
+}
+
+func (r *failingReader) Read([]byte) (int, error) {
+	r.reads++
+	return 0, r.err
+}
 
 func (r *recordingCommandRunner) run(name string, args ...string) ([]byte, error) {
 	r.called = true

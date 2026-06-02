@@ -15,6 +15,7 @@ import (
 )
 
 var errCredentialStoreUnavailable = errors.New("credential store unavailable")
+var errChatGPTOAuthNotImplemented = errors.New("ChatGPT Plus/Pro OAuth login is not implemented yet")
 
 var version = "dev"
 
@@ -22,11 +23,22 @@ type tuiLauncher func() error
 type commandRunner func(name string, args ...string) ([]byte, error)
 type loginHandler func(context.Context, io.Reader, io.Writer, string) error
 
+type chatGPTLoginFlow interface {
+	Login(context.Context, io.Writer, app.AuthCredentialStore) error
+}
+
+type placeholderChatGPTLoginFlow struct{}
+
+func (placeholderChatGPTLoginFlow) Login(context.Context, io.Writer, app.AuthCredentialStore) error {
+	return errChatGPTOAuthNotImplemented
+}
+
 type cliOptions struct {
-	launchTUI  tuiLauncher
-	runCommand commandRunner
-	stdin      io.Reader
-	login      loginHandler
+	launchTUI    tuiLauncher
+	runCommand   commandRunner
+	stdin        io.Reader
+	login        loginHandler
+	chatGPTLogin chatGPTLoginFlow
 }
 
 func runCLI(args []string, stdout, stderr io.Writer, options cliOptions) int {
@@ -92,7 +104,13 @@ func normalizeCLIOptions(options cliOptions) cliOptions {
 		options.stdin = strings.NewReader("")
 	}
 	if options.login == nil {
-		options.login = defaultLoginHandler
+		flow := options.chatGPTLogin
+		if flow == nil {
+			flow = placeholderChatGPTLoginFlow{}
+		}
+		options.login = func(ctx context.Context, stdin io.Reader, stdout io.Writer, target string) error {
+			return defaultLoginHandlerWithChatGPTFlow(ctx, stdin, stdout, target, flow)
+		}
 	}
 	return options
 }
@@ -109,6 +127,10 @@ func versionString() string {
 }
 
 func defaultLoginHandler(ctx context.Context, stdin io.Reader, stdout io.Writer, target string) error {
+	return defaultLoginHandlerWithChatGPTFlow(ctx, stdin, stdout, target, placeholderChatGPTLoginFlow{})
+}
+
+func defaultLoginHandlerWithChatGPTFlow(ctx context.Context, stdin io.Reader, stdout io.Writer, target string, flow chatGPTLoginFlow) error {
 	if err := validateLoginTarget(target); err != nil {
 		return err
 	}
@@ -116,29 +138,38 @@ func defaultLoginHandler(ctx context.Context, stdin io.Reader, stdout io.Writer,
 	if err != nil {
 		return fmt.Errorf("credential store: %w", err)
 	}
-	return loginWithStore(ctx, stdin, stdout, store, target)
+	return loginWithStoreWithChatGPTFlow(ctx, stdin, stdout, store, target, flow)
 }
 
 func loginWithStore(ctx context.Context, stdin io.Reader, stdout io.Writer, store app.CredentialStore, target string) error {
+	return loginWithStoreWithChatGPTFlow(ctx, stdin, stdout, store, target, placeholderChatGPTLoginFlow{})
+}
+
+func loginWithStoreWithChatGPTFlow(ctx context.Context, stdin io.Reader, stdout io.Writer, store app.CredentialStore, target string, flow chatGPTLoginFlow) error {
 	if err := validateLoginTarget(target); err != nil {
 		return err
 	}
 	if store == nil {
 		return fmt.Errorf("credential store: %w", errCredentialStoreUnavailable)
 	}
+	if normalizedLoginTarget(target) == "chatgpt" {
+		return loginChatGPT(ctx, stdout, store, flow)
+	}
 	return loginOpenAI(ctx, stdin, stdout, store)
 }
 
 func validateLoginTarget(target string) error {
-	switch strings.TrimSpace(strings.ToLower(target)) {
+	switch normalizedLoginTarget(target) {
 	case "", "openai":
 		return nil
 	case "chatgpt":
-		return fmt.Errorf("ChatGPT Plus/Pro browser OAuth is scaffolded but not implemented yet")
+		return nil
 	default:
 		return fmt.Errorf("unknown login target %q; usage: lingotui login [openai|chatgpt]", target)
 	}
 }
+
+func normalizedLoginTarget(target string) string { return strings.TrimSpace(strings.ToLower(target)) }
 
 func loginOpenAI(ctx context.Context, stdin io.Reader, stdout io.Writer, store app.CredentialStore) error {
 	fmt.Fprint(stdout, "OpenAI API key: ")
@@ -153,6 +184,24 @@ func loginOpenAI(ctx context.Context, stdin io.Reader, stdout io.Writer, store a
 		return fmt.Errorf("save OpenAI API key: %w", err)
 	}
 	fmt.Fprintln(stdout, "OpenAI API key saved to macOS Keychain.")
+	return nil
+}
+
+func loginChatGPT(ctx context.Context, stdout io.Writer, store app.CredentialStore, flow chatGPTLoginFlow) error {
+	authStore, ok := store.(app.AuthCredentialStore)
+	if !ok {
+		return fmt.Errorf("ChatGPT OAuth login requires typed credential store")
+	}
+	if flow == nil {
+		flow = placeholderChatGPTLoginFlow{}
+	}
+	if err := flow.Login(ctx, stdout, authStore); err != nil {
+		if errors.Is(err, errChatGPTOAuthNotImplemented) {
+			return err
+		}
+		return fmt.Errorf("ChatGPT OAuth login failed; no credentials saved")
+	}
+	fmt.Fprintln(stdout, "ChatGPT Plus/Pro OAuth credential saved.")
 	return nil
 }
 

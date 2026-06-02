@@ -69,8 +69,73 @@ func TestServiceStatusReportsSetupStatesWithoutSecrets(t *testing.T) {
 	}
 }
 
-func TestServiceStatusReportsChatGPTAsNotImplemented(t *testing.T) {
-	credentials := &fakeCredentialStore{secret: app.Secret{Value: "oauth-token"}}
+func TestServiceStatusReportsChatGPTOAuthCredentialReadyWithoutSecrets(t *testing.T) {
+	credentials := &fakeAuthCredentialStore{
+		credential: app.Credential{
+			Provider: app.ProviderChatGPT,
+			Kind:     app.CredentialKindOAuth,
+			OAuth: app.OAuthCredential{
+				AccessToken:  app.Secret{Value: "access-token"},
+				RefreshToken: app.Secret{Value: "refresh-token"},
+			},
+		},
+	}
+	service := Service{
+		CredentialPath: fakePath("/tmp/lingotui/auth.json"),
+		Credentials:    credentials,
+		AudioChecker:   &fakeAudioChecker{status: ItemStatus{Name: "Microphone", State: StateReady, Message: "ready"}},
+		Provider:       app.ProviderChatGPT,
+	}
+
+	status := service.Status(context.Background())
+	if status.Ready {
+		t.Fatalf("status ready = true, want false until ChatGPT runtime is implemented: %+v", status)
+	}
+	if status.Items[1].State != StateReady {
+		t.Fatalf("credential state = %s, want ready", status.Items[1].State)
+	}
+	if credentials.loads != 0 || credentials.credentialLoads != 1 {
+		t.Fatalf("loads = %d credentialLoads = %d, want old=0 typed=1", credentials.loads, credentials.credentialLoads)
+	}
+	rendered := strings.Join(RenderLines(status), "\n")
+	for _, want := range []string{"ChatGPT Plus/Pro credentials", "configured via typed OAuth credential ([redacted])", "OAuth/Codex provider use is not implemented yet"} {
+		if !strings.Contains(rendered, want) {
+			t.Fatalf("rendered status missing %q:\n%s", want, rendered)
+		}
+	}
+	for _, forbid := range []string{"access-token", "refresh-token"} {
+		if strings.Contains(rendered, forbid) {
+			t.Fatalf("rendered status exposed %q:\n%s", forbid, rendered)
+		}
+	}
+}
+
+func TestServiceStatusReportsChatGPTOAuthCredentialMissingWithoutOldLoad(t *testing.T) {
+	credentials := &fakeAuthCredentialStore{fakeCredentialStore: fakeCredentialStore{err: errors.New("not found")}}
+	service := Service{
+		CredentialPath: fakePath("/tmp/lingotui/auth.json"),
+		Credentials:    credentials,
+		AudioChecker:   &fakeAudioChecker{status: ItemStatus{Name: "Microphone", State: StateReady, Message: "ready"}},
+		Provider:       app.ProviderChatGPT,
+	}
+
+	status := service.Status(context.Background())
+	if status.Ready {
+		t.Fatalf("status ready = true, want false: %+v", status)
+	}
+	if credentials.loads != 0 || credentials.credentialLoads != 1 {
+		t.Fatalf("loads = %d credentialLoads = %d, want old=0 typed=1", credentials.loads, credentials.credentialLoads)
+	}
+	rendered := strings.Join(RenderLines(status), "\n")
+	for _, want := range []string{"missing", "lingotui login chatgpt", "OAuth/Codex provider use is not implemented yet"} {
+		if !strings.Contains(rendered, want) {
+			t.Fatalf("rendered status missing %q:\n%s", want, rendered)
+		}
+	}
+}
+
+func TestServiceStatusReportsChatGPTTypedStoreUnsupportedWithoutOldLoad(t *testing.T) {
+	credentials := &fakeCredentialStore{secret: app.Secret{Value: "legacy-secret"}}
 	service := Service{
 		CredentialPath: fakePath("/tmp/lingotui/auth.json"),
 		Credentials:    credentials,
@@ -83,16 +148,16 @@ func TestServiceStatusReportsChatGPTAsNotImplemented(t *testing.T) {
 		t.Fatalf("status ready = true, want false: %+v", status)
 	}
 	if credentials.loads != 0 {
-		t.Fatalf("chatgpt credential loads = %d, want 0 because OAuth is not implemented", credentials.loads)
+		t.Fatalf("old credential loads = %d, want 0", credentials.loads)
 	}
 	rendered := strings.Join(RenderLines(status), "\n")
-	for _, want := range []string{"ChatGPT Plus/Pro credentials", "scaffolded but not implemented yet", "will not open a browser or save credentials"} {
+	for _, want := range []string{"missing typed OAuth credential store", "lingotui login chatgpt", "OAuth/Codex provider use is not implemented yet"} {
 		if !strings.Contains(rendered, want) {
 			t.Fatalf("rendered status missing %q:\n%s", want, rendered)
 		}
 	}
-	if strings.Contains(rendered, "oauth-token") || strings.Contains(rendered, "configured via") {
-		t.Fatalf("rendered status implies ChatGPT works or exposes token:\n%s", rendered)
+	if strings.Contains(rendered, "legacy-secret") {
+		t.Fatalf("rendered status exposed legacy secret:\n%s", rendered)
 	}
 }
 
@@ -122,6 +187,23 @@ type fakeCredentialStore struct {
 func (s *fakeCredentialStore) Load(context.Context, app.ProviderID) (app.Secret, error) {
 	s.loads++
 	return s.secret, s.err
+}
+
+type fakeAuthCredentialStore struct {
+	fakeCredentialStore
+	credential      app.Credential
+	credentialLoads int
+}
+
+func (s *fakeAuthCredentialStore) SaveCredential(context.Context, app.Credential) error { return nil }
+
+func (s *fakeAuthCredentialStore) LoadCredential(context.Context, app.ProviderID, app.CredentialKind) (app.Credential, error) {
+	s.credentialLoads++
+	return s.credential, s.err
+}
+
+func (s *fakeAuthCredentialStore) DeleteCredential(context.Context, app.ProviderID, app.CredentialKind) error {
+	return nil
 }
 
 type fakeAudioChecker struct {
