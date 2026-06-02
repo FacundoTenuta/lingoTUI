@@ -7,44 +7,44 @@ import (
 )
 
 var (
-	bannerStyle  = lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("63"))
-	titleStyle   = lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("63"))
-	infoStyle    = lipgloss.NewStyle().Foreground(lipgloss.Color("39"))
-	successStyle = lipgloss.NewStyle().Foreground(lipgloss.Color("42"))
-	errorStyle   = lipgloss.NewStyle().Foreground(lipgloss.Color("204"))
-	loadingStyle = lipgloss.NewStyle().Foreground(lipgloss.Color("220"))
-	promptStyle  = lipgloss.NewStyle().Foreground(lipgloss.Color("42"))
+	bannerStyle   = lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("81"))
+	subtleStyle   = lipgloss.NewStyle().Foreground(lipgloss.Color("245"))
+	titleStyle    = lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("81"))
+	infoStyle     = lipgloss.NewStyle().Foreground(lipgloss.Color("75"))
+	successStyle  = lipgloss.NewStyle().Foreground(lipgloss.Color("42"))
+	warningStyle  = lipgloss.NewStyle().Foreground(lipgloss.Color("214"))
+	errorStyle    = lipgloss.NewStyle().Foreground(lipgloss.Color("204"))
+	loadingStyle  = lipgloss.NewStyle().Foreground(lipgloss.Color("220"))
+	promptStyle   = lipgloss.NewStyle().Foreground(lipgloss.Color("42"))
+	shortcutStyle = lipgloss.NewStyle().Foreground(lipgloss.Color("248"))
 )
 
-const banner = " _  _                      _____  _   _  ___\n" +
-	"| |(_) _ _   __ _  ___   |_   _|| | | ||_ _|\n" +
-	"| || || ' \\ / _` |/ _ \\    | |  | | | | | |\n" +
-	"|_||_||_||_|\\__, |\\___/    |_|  |_| |_||___|\n" +
-	"             |___/"
+const banner = "+-- LingoTUI ------------------------------------------------+\n" +
+	"| terminal language copilot                                |\n" +
+	"+-----------------------------------------------------------+"
+
+const footerShortcuts = "Shortcuts: Enter run | Esc back/quit | Ctrl+C quit"
 
 func (m Model) View() string {
 	var b strings.Builder
 	b.WriteString(bannerStyle.Render(banner))
 	b.WriteByte('\n')
-	b.WriteString(titleStyle.Render("lingoTUI"))
+	b.WriteString(m.statusStrip())
 	b.WriteString("\n\n")
-	b.WriteString(titleStyle.Render("Status"))
+	b.WriteString(sectionTitle("Setup"))
 	b.WriteByte('\n')
-	b.WriteString(m.statusLine())
-	b.WriteString("\n\n")
 	if len(m.SetupLines) > 0 {
-		b.WriteString(titleStyle.Render("Setup"))
-		b.WriteByte('\n')
 		for _, line := range m.SetupLines {
 			b.WriteString(line)
 			b.WriteByte('\n')
 		}
+	} else {
+		b.WriteString(subtleStyle.Render("No setup warnings. Run /connect to verify local runtime configuration."))
 		b.WriteByte('\n')
 	}
-	if len(m.Messages) > 0 {
-		b.WriteString(titleStyle.Render("History"))
-		b.WriteByte('\n')
-	}
+	b.WriteByte('\n')
+	b.WriteString(sectionTitle("History"))
+	b.WriteByte('\n')
 	for _, message := range m.Messages {
 		if strings.HasPrefix(message, "Error:") {
 			b.WriteString(errorStyle.Render(message))
@@ -53,32 +53,41 @@ func (m Model) View() string {
 		}
 		b.WriteByte('\n')
 	}
+	if len(m.Messages) == 0 {
+		b.WriteString(subtleStyle.Render("No commands run yet."))
+		b.WriteByte('\n')
+	}
 	if m.Err != nil {
 		b.WriteString(errorStyle.Render("Fix the error above, or run /help for available commands."))
 		b.WriteByte('\n')
 	}
-	if len(m.Messages) > 0 {
-		b.WriteByte('\n')
-	}
+	b.WriteByte('\n')
 	if m.inputMode == menuMode {
-		b.WriteString(titleStyle.Render("Menu"))
+		b.WriteString(sectionTitle("Menu/Input"))
 		b.WriteByte('\n')
-		b.WriteString("Use up/down or k/j to choose, Enter to run. Type / for a command.\n")
+		b.WriteString(subtleStyle.Render("Use up/down or k/j to choose. Type / for a command."))
+		b.WriteByte('\n')
 		for i, item := range menuItems {
 			cursor := "  "
 			if i == m.MenuIndex {
 				cursor = "> "
 			}
 			b.WriteString(promptStyle.Render(cursor))
-			b.WriteString(item.Label)
+			b.WriteString(titleStyle.Render(padRight(item.Label, 14)))
 			if item.Description != "" {
-				b.WriteString(" - ")
+				b.WriteString(" ")
 				b.WriteString(item.Description)
 			}
 			b.WriteByte('\n')
 		}
+		b.WriteString("\n")
+		b.WriteString(sectionTitle("Footer"))
+		b.WriteByte('\n')
+		b.WriteString(shortcutStyle.Render(footerShortcuts))
 		return b.String()
 	}
+	b.WriteString(sectionTitle("Menu/Input"))
+	b.WriteByte('\n')
 	if m.inputMode == askMode {
 		b.WriteString(promptStyle.Render("Ask > "))
 	} else if m.inputMode == translateMode {
@@ -87,7 +96,52 @@ func (m Model) View() string {
 		b.WriteString(promptStyle.Render("> "))
 	}
 	b.WriteString(m.Input)
+	b.WriteString("\n\n")
+	b.WriteString(sectionTitle("Footer"))
+	b.WriteByte('\n')
+	b.WriteString(shortcutStyle.Render(footerShortcuts))
 	return b.String()
+}
+
+func sectionTitle(label string) string {
+	return titleStyle.Render("[ " + label + " ]")
+}
+
+func padRight(value string, width int) string {
+	if len(value) >= width {
+		return value
+	}
+	return value + strings.Repeat(" ", width-len(value))
+}
+
+func (m Model) statusStrip() string {
+	return strings.Join([]string{
+		m.connectionChip(),
+		m.recordingChip(),
+		m.realtimeChip(),
+		"Status: " + m.statusLine(),
+	}, " | ")
+}
+
+func (m Model) connectionChip() string {
+	if m.connected {
+		return successStyle.Render("Connection: connected")
+	}
+	return errorStyle.Render("Connection: offline")
+}
+
+func (m Model) recordingChip() string {
+	if m.recording {
+		return warningStyle.Render("Recording: active")
+	}
+	return subtleStyle.Render("Recording: idle")
+}
+
+func (m Model) realtimeChip() string {
+	if m.realtime {
+		return infoStyle.Render("Realtime: active")
+	}
+	return subtleStyle.Render("Realtime: off")
 }
 
 func (m Model) statusLine() string {

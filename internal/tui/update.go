@@ -158,6 +158,8 @@ func (m Model) submit(input string) (Model, tea.Cmd) {
 
 func (m Model) finishCommand(msg commandFinishedMsg) (Model, tea.Cmd) {
 	m.realtime = msg.Result.Realtime
+	m.connected = msg.Result.Connected
+	m.recording = msg.Result.Recording
 	if msg.Err != nil {
 		m.Err = msg.Err
 		m.Status = statusError
@@ -168,6 +170,8 @@ func (m Model) finishCommand(msg commandFinishedMsg) (Model, tea.Cmd) {
 	}
 	m.Err = nil
 	m.realtime = msg.Result.Realtime
+	m.connected = msg.Result.Connected
+	m.recording = msg.Result.Recording
 	m.Status = statusForResult(msg.Result)
 	m.StatusMessage = statusMessageForResult(msg.Result)
 	for _, line := range formatResult(msg.Result) {
@@ -276,7 +280,7 @@ func formatResult(result app.Result) []string {
 	if len(result.Help) > 0 {
 		lines := []string{result.Message}
 		for _, entry := range result.Help {
-			lines = append(lines, fmt.Sprintf("  %s — %s", entry.Command, entry.Description))
+			lines = append(lines, fmt.Sprintf("  %-22s %s", entry.Command, entry.Description))
 		}
 		if len(result.Guidance) > 0 {
 			lines = append(lines, "", "Setup guidance:")

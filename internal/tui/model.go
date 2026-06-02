@@ -23,6 +23,8 @@ type Model struct {
 	StatusMessage       string
 	MenuIndex           int
 	inputMode           inputMode
+	connected           bool
+	recording           bool
 	realtime            bool
 	droppedRealtimeTick bool
 	realtimeTick        func() tea.Cmd

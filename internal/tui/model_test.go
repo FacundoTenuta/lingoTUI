@@ -23,6 +23,11 @@ func TestModelUpdateShowsHelp(t *testing.T) {
 	if !strings.Contains(view, "/record mic") || !strings.Contains(view, "/realtime start mic") || !strings.Contains(view, "/ask <question>") || !strings.Contains(view, "/translate <text>") || !strings.Contains(view, "auth.json") {
 		t.Fatalf("view missing help: %s", view)
 	}
+	for _, want := range []string{"  /connect", "  /translate <text>", "show supported commands"} {
+		if !strings.Contains(view, want) {
+			t.Fatalf("help output missing readable entry %q: %s", want, view)
+		}
+	}
 }
 
 func TestModelUpdateShowsModelsAsInfo(t *testing.T) {
@@ -38,12 +43,12 @@ func TestNewModelShowsStartupOnboarding(t *testing.T) {
 	fake := &fakeApp{}
 	model := NewModel(fake, "Setup status:", "- OpenAI credentials: missing — add auth.json before /connect")
 	view := model.View()
-	for _, want := range []string{"lingoTUI", "Status", "Idle: Ready. Choose an action", "Setup", "Setup status", "auth.json", "/connect"} {
+	for _, want := range []string{"LingoTUI", "Connection: offline", "Recording: idle", "Realtime: off", "Status: Idle: Ready. Choose an action", "[ Setup ]", "Setup status", "auth.json", "/connect", "[ Footer ]", "Enter run", "Esc back/quit", "Ctrl+C quit"} {
 		if !strings.Contains(view, want) {
 			t.Fatalf("view missing %q: %s", want, view)
 		}
 	}
-	if strings.Contains(view, "History") || len(model.Messages) != 0 || len(fake.inputs) != 0 {
+	if len(model.Messages) != 0 || len(fake.inputs) != 0 {
 		t.Fatalf("startup mixed setup/history or called app: messages=%v calls=%v view=%s", model.Messages, fake.inputs, view)
 	}
 }
@@ -53,13 +58,50 @@ func TestNewModelShowsInteractiveMenu(t *testing.T) {
 	model := NewModel(fake)
 	view := model.View()
 
-	for _, want := range []string{"Use up/down or k/j", "> Ask", "Translate", "Realtime mic", "Record mic", "Connect"} {
+	for _, want := range []string{"[ Menu/Input ]", "Use up/down or k/j", "> Ask", "Translate", "Realtime mic", "Record mic", "Connect", "Shortcuts: Enter run | Esc back/quit | Ctrl+C quit"} {
 		if !strings.Contains(view, want) {
 			t.Fatalf("view missing %q: %s", want, view)
 		}
 	}
 	if len(fake.inputs) != 0 {
 		t.Fatalf("startup called app with %v", fake.inputs)
+	}
+}
+
+func TestViewShowsPersistentStatusChips(t *testing.T) {
+	model := Model{
+		Status:        statusSuccess,
+		StatusMessage: "Recording microphone audio. Run /stop to process it.",
+		inputMode:     menuMode,
+		connected:     true,
+		recording:     true,
+		realtime:      true,
+	}
+	view := model.View()
+
+	for _, want := range []string{"Connection: connected", "Recording: active", "Realtime: active", "Status: Success: Recording microphone audio"} {
+		if !strings.Contains(view, want) {
+			t.Fatalf("view missing %q: %s", want, view)
+		}
+	}
+}
+
+func TestModelRecordCommandCompletionUpdatesRecordingIndicator(t *testing.T) {
+	fake := &fakeApp{result: app.Result{Command: app.CommandRecord, Message: "Recording microphone audio. Run /stop to process it.", Recording: true}}
+	model := submitModel(t, NewModel(fake), "/record mic")
+
+	if !model.recording || !strings.Contains(model.View(), "Recording: active") {
+		t.Fatalf("expected recording indicator: %s", model.View())
+	}
+}
+
+func TestModelRealtimeCommandCompletionUpdatesRealtimeIndicator(t *testing.T) {
+	fake := &fakeApp{result: app.Result{Command: app.CommandRealtime, Message: "Realtime translation started.", Realtime: true}}
+	model, cmd := submitModelPending(t, NewModel(fake), "/realtime start mic")
+	model, _ = applyCommandWithNext(t, model, cmd)
+
+	if !model.realtime || !strings.Contains(model.View(), "Realtime: active") {
+		t.Fatalf("expected realtime indicator: %s", model.View())
 	}
 }
 
