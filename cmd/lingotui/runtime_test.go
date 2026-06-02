@@ -6,6 +6,7 @@ import (
 	"testing"
 
 	"github.com/FacundoTenuta/lingoTUI/internal/app"
+	"github.com/FacundoTenuta/lingoTUI/internal/config"
 	"github.com/FacundoTenuta/lingoTUI/internal/credentials"
 	"github.com/FacundoTenuta/lingoTUI/internal/setup"
 	"github.com/FacundoTenuta/lingoTUI/internal/tui"
@@ -97,6 +98,41 @@ func TestBuildRuntimeAllowsExplicitRecordOnlyAfterUserCommand(t *testing.T) {
 	}
 }
 
+func TestBuildRuntimeDoesNotWireProviderForChatGPTScaffold(t *testing.T) {
+	baseDir := t.TempDir()
+	ctx := context.Background()
+	configStore, err := config.NewFileStore(baseDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	cfg := app.DefaultConfig()
+	cfg.Provider = app.ProviderChatGPT
+	if err := configStore.Save(ctx, cfg); err != nil {
+		t.Fatal(err)
+	}
+	store := &countingRuntimeCredentialStore{secret: app.Secret{Value: "chatgpt-token"}}
+	providerCalls := 0
+
+	_, err = buildRuntimeWithOptions(baseDir, runtimeOptions{
+		newProvider: func(app.Secret) (providerClient, error) {
+			providerCalls++
+			return &countingProvider{}, nil
+		},
+		newRecorder:     func() app.Recorder { return &countingRecorder{} },
+		audioChecker:    &countingAudioChecker{status: setup.ItemStatus{Name: "Microphone", State: setup.StateReady, Message: "ready"}},
+		credentialStore: store,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if store.loads != 0 {
+		t.Fatalf("credential loads = %d, want 0 for ChatGPT scaffold", store.loads)
+	}
+	if providerCalls != 0 {
+		t.Fatalf("provider constructor calls = %d, want 0 for ChatGPT scaffold", providerCalls)
+	}
+}
+
 type countingRecorder struct {
 	starts int
 	stops  int
@@ -147,6 +183,20 @@ func (s *missingRuntimeCredentialStore) Load(context.Context, app.ProviderID) (a
 	return app.Secret{}, credentials.ErrSecretNotFound
 }
 func (s *missingRuntimeCredentialStore) Delete(context.Context, app.ProviderID) error { return nil }
+
+type countingRuntimeCredentialStore struct {
+	secret app.Secret
+	loads  int
+}
+
+func (s *countingRuntimeCredentialStore) Save(context.Context, app.ProviderID, app.Secret) error {
+	return nil
+}
+func (s *countingRuntimeCredentialStore) Load(context.Context, app.ProviderID) (app.Secret, error) {
+	s.loads++
+	return s.secret, nil
+}
+func (s *countingRuntimeCredentialStore) Delete(context.Context, app.ProviderID) error { return nil }
 
 func (c *countingAudioChecker) Microphone(context.Context) setup.ItemStatus {
 	c.checks++

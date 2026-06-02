@@ -31,10 +31,30 @@ func TestServiceConnectMissingCredentialIsActionable(t *testing.T) {
 	if !errors.Is(err, ErrMissingCredential) {
 		t.Fatalf("error = %v, want %v", err, ErrMissingCredential)
 	}
-	for _, want := range []string{"lingotui login", "auth.json fallback", "/connect"} {
+	for _, want := range []string{"lingotui login openai", "auth.json fallback", "/connect"} {
 		if !strings.Contains(err.Error(), want) {
 			t.Fatalf("error missing %q: %v", want, err)
 		}
+	}
+}
+
+func TestServiceConnectChatGPTIsNotImplemented(t *testing.T) {
+	service := NewService(Dependencies{
+		Config:      &testutil.ConfigStore{Config: Config{Provider: ProviderChatGPT}},
+		Credentials: &testutil.CredentialStore{Secrets: map[ProviderID]Secret{ProviderChatGPT: {Value: "oauth-token"}}},
+	})
+
+	result, err := service.Connect(context.Background())
+	if !errors.Is(err, ErrNotConfigured) {
+		t.Fatalf("error = %v, want %v", err, ErrNotConfigured)
+	}
+	for _, want := range []string{"ChatGPT Plus/Pro OAuth", "not implemented yet", "does not open a browser"} {
+		if !strings.Contains(err.Error(), want) {
+			t.Fatalf("error missing %q: %v", want, err)
+		}
+	}
+	if result.Connected {
+		t.Fatalf("result = %+v, must not connect ChatGPT scaffold", result)
 	}
 }
 
@@ -47,6 +67,21 @@ func TestServiceModelsUsesDefaultModels(t *testing.T) {
 	}
 	if len(result.Models) != 2 || result.Models[0].Name != DefaultTranscriptionModel || result.Models[1].Name != DefaultChatModel {
 		t.Fatalf("models = %+v", result.Models)
+	}
+}
+
+func TestServiceModelsDoesNotExposeChatGPTScaffoldModels(t *testing.T) {
+	service := NewService(Dependencies{Config: &testutil.ConfigStore{Config: Config{Provider: ProviderChatGPT}}})
+
+	result, err := service.Models(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(result.Models) != 0 {
+		t.Fatalf("models = %+v, want none for ChatGPT scaffold", result.Models)
+	}
+	if !strings.Contains(result.Message, "not implemented yet") {
+		t.Fatalf("message = %q, want not implemented guidance", result.Message)
 	}
 }
 
@@ -173,7 +208,7 @@ func TestServiceHelpIncludesSetupGuidance(t *testing.T) {
 		t.Fatalf("help result = %+v", result)
 	}
 	joined := strings.Join(result.Guidance, "\n")
-	for _, want := range []string{"lingotui login", "auth.json fallback", "/connect", "/record mic"} {
+	for _, want := range []string{"lingotui login openai", "lingotui login chatgpt", "not implemented yet", "auth.json fallback", "/connect", "/record mic"} {
 		if !strings.Contains(joined, want) {
 			t.Fatalf("guidance missing %q: %s", want, joined)
 		}
@@ -189,7 +224,7 @@ func TestServiceNotConfiguredMessagesAreActionable(t *testing.T) {
 		{
 			name: "missing credential store",
 			call: func(s *Service) error { _, err := s.Connect(context.Background()); return err },
-			want: "lingotui login",
+			want: "lingotui login openai",
 		},
 		{
 			name: "missing recorder",

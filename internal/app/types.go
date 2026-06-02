@@ -1,10 +1,77 @@
 package app
 
-import "encoding/json"
+import (
+	"encoding/json"
+	"time"
+)
 
 type ProviderID string
 
-const ProviderOpenAI ProviderID = "openai"
+const (
+	ProviderOpenAI  ProviderID = "openai"
+	ProviderChatGPT ProviderID = "chatgpt"
+)
+
+type CredentialKind string
+
+const (
+	CredentialKindAPIKey CredentialKind = "api_key"
+	CredentialKindOAuth  CredentialKind = "oauth"
+)
+
+type Credential struct {
+	Provider ProviderID      `json:"provider"`
+	Kind     CredentialKind  `json:"kind"`
+	APIKey   Secret          `json:"api_key,omitempty"`
+	OAuth    OAuthCredential `json:"oauth,omitempty"`
+}
+
+type OAuthCredential struct {
+	AccessToken  Secret    `json:"access_token"`
+	RefreshToken Secret    `json:"refresh_token"`
+	ExpiresAt    time.Time `json:"expires_at"`
+	AccountID    string    `json:"account_id"`
+}
+
+func (c Credential) Redacted() Credential {
+	if !c.APIKey.Empty() {
+		c.APIKey = Secret{Value: c.APIKey.Redacted()}
+	}
+	if !c.OAuth.AccessToken.Empty() {
+		c.OAuth.AccessToken = Secret{Value: c.OAuth.AccessToken.Redacted()}
+	}
+	if !c.OAuth.RefreshToken.Empty() {
+		c.OAuth.RefreshToken = Secret{Value: c.OAuth.RefreshToken.Redacted()}
+	}
+	return c
+}
+
+func (c Credential) String() string {
+	data, err := json.Marshal(c.Redacted())
+	if err != nil {
+		return "[redacted credential]"
+	}
+	return string(data)
+}
+
+func (c Credential) GoString() string { return c.String() }
+
+func (c *Credential) UnmarshalJSON(data []byte) error {
+	type credentialAlias Credential
+	var aux struct {
+		credentialAlias
+		Secret Secret `json:"secret"`
+	}
+	if err := json.Unmarshal(data, &aux); err != nil {
+		return err
+	}
+	*c = Credential(aux.credentialAlias)
+	if c.Kind == "" && !aux.Secret.Empty() {
+		c.Kind = CredentialKindAPIKey
+		c.APIKey = aux.Secret
+	}
+	return nil
+}
 
 type AudioSource string
 

@@ -196,7 +196,7 @@ func TestRunCLIVersionRejectsExtraArgsWithoutSideEffects(t *testing.T) {
 			if login.called {
 				t.Fatal("login handler was called")
 			}
-			if !strings.Contains(stderr.String(), "usage: lingotui [login|update|version|-v|--version]") {
+			if !strings.Contains(stderr.String(), "usage: lingotui [login [openai|chatgpt]|update|version|-v|--version]") {
 				t.Fatalf("stderr = %q, want usage", stderr.String())
 			}
 		})
@@ -204,29 +204,42 @@ func TestRunCLIVersionRejectsExtraArgsWithoutSideEffects(t *testing.T) {
 }
 
 func TestRunCLILoginCallsHandler(t *testing.T) {
-	runner := &recordingCommandRunner{}
-	login := &recordingLoginHandler{}
-	var stdout bytes.Buffer
-	stdin := strings.NewReader("sk-test\n")
+	tests := []struct {
+		name       string
+		args       []string
+		wantTarget string
+	}{
+		{name: "default target", args: []string{"login"}, wantTarget: ""},
+		{name: "openai target", args: []string{"login", "openai"}, wantTarget: "openai"},
+	}
 
-	code := runCLI([]string{"login"}, &stdout, &bytes.Buffer{}, cliOptions{
-		launchTUI:  func() error { return nil },
-		runCommand: runner.run,
-		stdin:      stdin,
-		login:      login.run,
-	})
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			runner := &recordingCommandRunner{}
+			login := &recordingLoginHandler{}
+			var stdout bytes.Buffer
+			stdin := strings.NewReader("sk-test\n")
 
-	if code != 0 {
-		t.Fatalf("code = %d, want 0", code)
-	}
-	if !login.called {
-		t.Fatal("login handler was not called")
-	}
-	if login.stdin != stdin || login.stdout != &stdout {
-		t.Fatal("login handler did not receive configured streams")
-	}
-	if runner.called {
-		t.Fatalf("command runner was called: %+v", runner)
+			code := runCLI(tt.args, &stdout, &bytes.Buffer{}, cliOptions{
+				launchTUI:  func() error { return nil },
+				runCommand: runner.run,
+				stdin:      stdin,
+				login:      login.run,
+			})
+
+			if code != 0 {
+				t.Fatalf("code = %d, want 0", code)
+			}
+			if !login.called {
+				t.Fatal("login handler was not called")
+			}
+			if login.stdin != stdin || login.stdout != &stdout || login.target != tt.wantTarget {
+				t.Fatalf("login handler got stdin/stdout/target = %v/%v/%q", login.stdin == stdin, login.stdout == &stdout, login.target)
+			}
+			if runner.called {
+				t.Fatalf("command runner was called: %+v", runner)
+			}
+		})
 	}
 }
 
@@ -236,7 +249,7 @@ func TestRunCLILoginRejectsExtraArgsWithoutSideEffects(t *testing.T) {
 	var launched bool
 	var stderr bytes.Buffer
 
-	code := runCLI([]string{"login", "now"}, &bytes.Buffer{}, &stderr, cliOptions{
+	code := runCLI([]string{"login", "openai", "now"}, &bytes.Buffer{}, &stderr, cliOptions{
 		launchTUI: func() error {
 			launched = true
 			return nil
@@ -257,7 +270,7 @@ func TestRunCLILoginRejectsExtraArgsWithoutSideEffects(t *testing.T) {
 	if login.called {
 		t.Fatal("login handler was called")
 	}
-	if !strings.Contains(stderr.String(), "usage: lingotui [login|update|version|-v|--version]") {
+	if !strings.Contains(stderr.String(), "usage: lingotui [login [openai|chatgpt]|update|version|-v|--version]") {
 		t.Fatalf("stderr = %q, want usage", stderr.String())
 	}
 }
@@ -300,7 +313,7 @@ func TestRunCLIUnknownCommandReturnsNonZeroWithoutSideEffects(t *testing.T) {
 	if runner.called {
 		t.Fatalf("command runner was called: %+v", runner)
 	}
-	if !strings.Contains(stderr.String(), "usage: lingotui [login|update|version|-v|--version]") {
+	if !strings.Contains(stderr.String(), "usage: lingotui [login [openai|chatgpt]|update|version|-v|--version]") {
 		t.Fatalf("stderr = %q, want usage", stderr.String())
 	}
 }
@@ -327,16 +340,16 @@ func TestRunCLIUpdateRejectsExtraArgsWithoutSideEffects(t *testing.T) {
 	if runner.called {
 		t.Fatalf("command runner was called: %+v", runner)
 	}
-	if !strings.Contains(stderr.String(), "usage: lingotui [login|update|version|-v|--version]") {
+	if !strings.Contains(stderr.String(), "usage: lingotui [login [openai|chatgpt]|update|version|-v|--version]") {
 		t.Fatalf("stderr = %q, want usage", stderr.String())
 	}
 }
 
-func TestLoginWithStoreSavesOpenAIKeyWithoutExposingSecret(t *testing.T) {
+func TestLoginWithStoreDefaultsToOpenAIAPIKeyWithoutExposingSecret(t *testing.T) {
 	store := &recordingCredentialStore{}
 	var stdout bytes.Buffer
 
-	if err := loginWithStore(context.Background(), strings.NewReader(" sk-secret \n"), &stdout, store); err != nil {
+	if err := loginWithStore(context.Background(), strings.NewReader(" sk-secret \n"), &stdout, store, ""); err != nil {
 		t.Fatal(err)
 	}
 	if store.provider != "openai" || store.secret.Value != "sk-secret" {
@@ -347,6 +360,47 @@ func TestLoginWithStoreSavesOpenAIKeyWithoutExposingSecret(t *testing.T) {
 	}
 	if !strings.Contains(stdout.String(), "saved to macOS Keychain") {
 		t.Fatalf("stdout = %q, want success message", stdout.String())
+	}
+}
+
+func TestLoginWithStoreOpenAISavesAPIKeyWithoutExposingSecret(t *testing.T) {
+	store := &recordingCredentialStore{}
+	var stdout bytes.Buffer
+
+	if err := loginWithStore(context.Background(), strings.NewReader(" sk-secret \n"), &stdout, store, "openai"); err != nil {
+		t.Fatal(err)
+	}
+	if store.saves != 1 || store.provider != app.ProviderOpenAI || store.secret.Value != "sk-secret" {
+		t.Fatalf("saves=%d provider=%q secret=%q", store.saves, store.provider, store.secret.Value)
+	}
+	if strings.Contains(stdout.String(), "sk-secret") {
+		t.Fatalf("stdout exposed secret: %q", stdout.String())
+	}
+}
+
+func TestLoginWithStoreChatGPTNotImplementedSavesNothing(t *testing.T) {
+	store := &recordingCredentialStore{}
+	var stdout bytes.Buffer
+
+	err := loginWithStore(context.Background(), strings.NewReader("ignored\n"), &stdout, store, "chatgpt")
+	if err == nil || !strings.Contains(err.Error(), "not implemented yet") {
+		t.Fatalf("error = %v, want not implemented", err)
+	}
+	if store.saves != 0 || stdout.String() != "" {
+		t.Fatalf("side effects: saves=%d stdout=%q", store.saves, stdout.String())
+	}
+}
+
+func TestLoginWithStoreUnknownTargetRejectsWithoutSideEffects(t *testing.T) {
+	store := &recordingCredentialStore{}
+	var stdout bytes.Buffer
+
+	err := loginWithStore(context.Background(), strings.NewReader("ignored\n"), &stdout, store, "wat")
+	if err == nil || !strings.Contains(err.Error(), "unknown login target") {
+		t.Fatalf("error = %v, want unknown target", err)
+	}
+	if store.saves != 0 || stdout.String() != "" {
+		t.Fatalf("side effects: saves=%d stdout=%q", store.saves, stdout.String())
 	}
 }
 
@@ -362,23 +416,27 @@ type recordingLoginHandler struct {
 	called bool
 	stdin  io.Reader
 	stdout io.Writer
+	target string
 	err    error
 }
 
-func (h *recordingLoginHandler) run(_ context.Context, stdin io.Reader, stdout io.Writer) error {
+func (h *recordingLoginHandler) run(_ context.Context, stdin io.Reader, stdout io.Writer, target string) error {
 	h.called = true
 	h.stdin = stdin
 	h.stdout = stdout
+	h.target = target
 	return h.err
 }
 
 type recordingCredentialStore struct {
 	provider app.ProviderID
 	secret   app.Secret
+	saves    int
 	err      error
 }
 
 func (s *recordingCredentialStore) Save(_ context.Context, provider app.ProviderID, secret app.Secret) error {
+	s.saves++
 	s.provider = provider
 	s.secret = secret
 	return s.err

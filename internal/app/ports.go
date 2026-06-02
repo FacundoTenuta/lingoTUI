@@ -22,6 +22,12 @@ type CredentialStore interface {
 	Delete(context.Context, ProviderID) error
 }
 
+type AuthCredentialStore interface {
+	SaveCredential(context.Context, Credential) error
+	LoadCredential(context.Context, ProviderID, CredentialKind) (Credential, error)
+	DeleteCredential(context.Context, ProviderID, CredentialKind) error
+}
+
 type ConfigStore interface {
 	Load(context.Context) (Config, error)
 	Save(context.Context, Config) error

@@ -32,7 +32,7 @@ func TestServiceStatusReportsSetupStatesWithoutSecrets(t *testing.T) {
 			loadErr:   errors.New("not found"),
 			audio:     ItemStatus{Name: "Microphone", State: StateUnknown, Message: "grant macOS microphone access before /record mic"},
 			wantReady: false,
-			want:      []string{"missing", "lingotui login", "auth.json fallback", "/connect", "/record mic", "Nothing records or calls OpenAI"},
+			want:      []string{"missing", "lingotui login openai", "auth.json fallback", "/connect", "/record mic", "Nothing records, opens a browser, or calls a provider"},
 		},
 	}
 
@@ -66,6 +66,33 @@ func TestServiceStatusReportsSetupStatesWithoutSecrets(t *testing.T) {
 				}
 			}
 		})
+	}
+}
+
+func TestServiceStatusReportsChatGPTAsNotImplemented(t *testing.T) {
+	credentials := &fakeCredentialStore{secret: app.Secret{Value: "oauth-token"}}
+	service := Service{
+		CredentialPath: fakePath("/tmp/lingotui/auth.json"),
+		Credentials:    credentials,
+		AudioChecker:   &fakeAudioChecker{status: ItemStatus{Name: "Microphone", State: StateReady, Message: "ready"}},
+		Provider:       app.ProviderChatGPT,
+	}
+
+	status := service.Status(context.Background())
+	if status.Ready {
+		t.Fatalf("status ready = true, want false: %+v", status)
+	}
+	if credentials.loads != 0 {
+		t.Fatalf("chatgpt credential loads = %d, want 0 because OAuth is not implemented", credentials.loads)
+	}
+	rendered := strings.Join(RenderLines(status), "\n")
+	for _, want := range []string{"ChatGPT Plus/Pro credentials", "scaffolded but not implemented yet", "will not open a browser or save credentials"} {
+		if !strings.Contains(rendered, want) {
+			t.Fatalf("rendered status missing %q:\n%s", want, rendered)
+		}
+	}
+	if strings.Contains(rendered, "oauth-token") || strings.Contains(rendered, "configured via") {
+		t.Fatalf("rendered status implies ChatGPT works or exposes token:\n%s", rendered)
 	}
 }
 

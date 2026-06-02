@@ -6,7 +6,7 @@ lingoTUI is a terminal-first language survival assistant. The current MVP opens 
 
 1. Install Go and `ffmpeg`.
 2. Install the command with `./install.sh`, or use the manual commands below.
-3. Run `lingotui login` and paste your OpenAI API key when prompted.
+3. Run `lingotui login openai` and paste your OpenAI API key when prompted.
 4. Run `lingotui`; the first screen shows setup status and waits for your command.
 
 ## Install
@@ -54,8 +54,10 @@ lingotui
 Save your OpenAI API key to macOS Keychain before using OpenAI-backed flows:
 
 ```sh
-lingotui login
+lingotui login openai
 ```
+
+`lingotui login` still defaults to the OpenAI API-key prompt for compatibility. `lingotui login chatgpt` is reserved for future ChatGPT Plus/Pro browser OAuth support; today it exits with a not-implemented message, does not open a browser, and saves nothing.
 
 ## Update
 
@@ -98,7 +100,7 @@ On startup, lingoTUI reads local config/credential status and renders setup guid
 
 Use `/help` inside the TUI for supported commands and setup reminders. The first useful sequence is:
 
-1. Run `lingotui login` to save an OpenAI key to macOS Keychain, or configure the `auth.json` fallback for development.
+1. Run `lingotui login openai` to save an OpenAI key to macOS Keychain, or configure the `auth.json` fallback for development.
 2. Run `/connect` to mark the configured provider as connected.
 3. Run `/record mic` only when you choose to start microphone recording.
 4. Run `/stop` to stop recording and process the captured audio.
@@ -108,7 +110,7 @@ Use `/help` inside the TUI for supported commands and setup reminders. The first
 | File | Default location | Purpose |
 |------|------------------|---------|
 | `config.json` | `${UserConfigDir}/lingotui/config.json` | Provider/model defaults. |
-| `auth.json` | `${UserConfigDir}/lingotui/auth.json` | Development fallback API-key credentials. |
+| `auth.json` | `${UserConfigDir}/lingotui/auth.json` | Development fallback typed credentials. |
 
 `UserConfigDir` is provided by the OS. On macOS this is typically `~/Library/Application Support/lingotui/`.
 
@@ -120,10 +122,24 @@ Example fallback `auth.json`:
 {
   "openai": {
     "provider": "openai",
+    "kind": "api_key",
+    "api_key": "sk-your-api-key"
+  }
+}
+```
+
+The old API-key-only format is still loadable for compatibility:
+
+```json
+{
+  "openai": {
+    "provider": "openai",
     "secret": "sk-your-api-key"
   }
 }
 ```
+
+OAuth credential records are scaffolded for future ChatGPT Plus/Pro support, but no browser OAuth flow, token exchange, or Codex request is implemented yet. Access and refresh tokens are redacted by app types and must not be printed.
 
 Secrets are loaded from Keychain first, then the `auth.json` fallback, and are redacted by the app types. Do not commit `auth.json`.
 
@@ -163,18 +179,23 @@ LINGOTUI_OPENAI_API_KEY=sk-... LINGOTUI_OPENAI_TRANSCRIBE=1 go test ./internal/p
 
 Provider calls may incur OpenAI costs. The adapter avoids logging request headers and redacts the configured API key from provider error messages.
 
+## ChatGPT Plus/Pro scaffold
+
+ChatGPT Plus/Pro is registered as a separate future provider, but it intentionally exposes no usable auth methods or models yet. It is not usable yet: `lingotui login chatgpt` intentionally returns a not-implemented error, does not open a browser, does not call ChatGPT/OpenAI auth endpoints, and does not save tokens.
+
 ## Privacy and cost boundaries
 
 - Recording is explicit: `/record mic` starts, `/stop` processes.
 - Startup and onboarding do not start ffmpeg, request/record microphone audio, or call OpenAI.
 - Recent transcript and summary context is in memory by default.
 - Audio files are temporary by default.
-- OpenAI API calls happen only through the provider adapter, require an API key, and are triggered by explicit user commands.
+- OpenAI API calls happen only through the OpenAI API-key provider adapter and are triggered by explicit user commands.
+- ChatGPT Plus/Pro browser OAuth and Codex requests are scaffolded only and are not executed.
 - Default tests do not make network calls or access audio devices.
 
 ## Deferred roadmap seams
 
 - Robust system audio and combined microphone/system capture.
-- Browser-auth research for ChatGPT Plus/Pro if viable.
+- Implement ChatGPT Plus/Pro browser OAuth only after explicit product/security validation.
 - Additional provider registry entries.
 - Stricter real-time translation beyond the current record/process flow.

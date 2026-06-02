@@ -20,7 +20,7 @@ var version = "dev"
 
 type tuiLauncher func() error
 type commandRunner func(name string, args ...string) ([]byte, error)
-type loginHandler func(context.Context, io.Reader, io.Writer) error
+type loginHandler func(context.Context, io.Reader, io.Writer, string) error
 
 type cliOptions struct {
 	launchTUI  tuiLauncher
@@ -49,11 +49,15 @@ func runCLI(args []string, stdout, stderr io.Writer, options cliOptions) int {
 		fmt.Fprintf(stdout, "lingotui %s\n", versionString())
 		return 0
 	case "login":
-		if len(args) != 1 {
+		if len(args) > 2 {
 			printUsage(stderr)
 			return 1
 		}
-		if err := options.login(context.Background(), options.stdin, stdout); err != nil {
+		target := ""
+		if len(args) == 2 {
+			target = args[1]
+		}
+		if err := options.login(context.Background(), options.stdin, stdout, target); err != nil {
 			fmt.Fprintf(stderr, "lingotui login: %v\n", err)
 			return 1
 		}
@@ -94,7 +98,7 @@ func normalizeCLIOptions(options cliOptions) cliOptions {
 }
 
 func printUsage(w io.Writer) {
-	fmt.Fprintln(w, "usage: lingotui [login|update|version|-v|--version]")
+	fmt.Fprintln(w, "usage: lingotui [login [openai|chatgpt]|update|version|-v|--version]")
 }
 
 func versionString() string {
@@ -104,18 +108,39 @@ func versionString() string {
 	return version
 }
 
-func defaultLoginHandler(ctx context.Context, stdin io.Reader, stdout io.Writer) error {
+func defaultLoginHandler(ctx context.Context, stdin io.Reader, stdout io.Writer, target string) error {
+	if err := validateLoginTarget(target); err != nil {
+		return err
+	}
 	store, err := buildCredentialStore("")
 	if err != nil {
 		return fmt.Errorf("credential store: %w", err)
 	}
-	return loginWithStore(ctx, stdin, stdout, store)
+	return loginWithStore(ctx, stdin, stdout, store, target)
 }
 
-func loginWithStore(ctx context.Context, stdin io.Reader, stdout io.Writer, store app.CredentialStore) error {
+func loginWithStore(ctx context.Context, stdin io.Reader, stdout io.Writer, store app.CredentialStore, target string) error {
+	if err := validateLoginTarget(target); err != nil {
+		return err
+	}
 	if store == nil {
 		return fmt.Errorf("credential store: %w", errCredentialStoreUnavailable)
 	}
+	return loginOpenAI(ctx, stdin, stdout, store)
+}
+
+func validateLoginTarget(target string) error {
+	switch strings.TrimSpace(strings.ToLower(target)) {
+	case "", "openai":
+		return nil
+	case "chatgpt":
+		return fmt.Errorf("ChatGPT Plus/Pro browser OAuth is scaffolded but not implemented yet")
+	default:
+		return fmt.Errorf("unknown login target %q; usage: lingotui login [openai|chatgpt]", target)
+	}
+}
+
+func loginOpenAI(ctx context.Context, stdin io.Reader, stdout io.Writer, store app.CredentialStore) error {
 	fmt.Fprint(stdout, "OpenAI API key: ")
 	key, err := readSecret(stdin, stdout)
 	if err != nil {

@@ -66,11 +66,13 @@ func buildRuntimeWithOptions(baseDir string, options runtimeOptions) (tui.Model,
 	setupLines := setup.RenderLines(setupService.Status(ctx))
 
 	var provider providerClient
-	secret, err := credentialStore.Load(ctx, cfg.Provider)
-	if err == nil && !secret.Empty() {
-		provider, err = options.newProvider(secret)
-		if err != nil {
-			return tui.Model{}, fmt.Errorf("provider %s: %w", cfg.Provider, err)
+	if cfg.Provider != app.ProviderChatGPT {
+		secret, err := credentialStore.Load(ctx, cfg.Provider)
+		if err == nil && !secret.Empty() {
+			provider, err = options.newProvider(secret)
+			if err != nil {
+				return tui.Model{}, fmt.Errorf("provider %s: %w", cfg.Provider, err)
+			}
 		}
 	}
 

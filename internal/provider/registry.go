@@ -8,7 +8,7 @@ import (
 
 type Registry struct{ providers map[app.ProviderID]Provider }
 
-func DefaultRegistry() Registry { return NewRegistry(OpenAI()) }
+func DefaultRegistry() Registry { return NewRegistry(OpenAI(), ChatGPT()) }
 
 func NewRegistry(providers ...Provider) Registry {
 	registry := Registry{providers: map[app.ProviderID]Provider{}}
@@ -25,11 +25,18 @@ func OpenAI() Provider {
 	return Provider{
 		ID:          app.ProviderOpenAI,
 		Name:        "OpenAI",
-		AuthMethods: []AuthMethod{AuthMethodAPIKey, AuthMethodBrowser},
+		AuthMethods: []AuthMethod{AuthMethodAPIKey},
 		Models: []app.ModelRef{
 			{Provider: app.ProviderOpenAI, Name: app.DefaultTranscriptionModel, Purpose: app.ModelPurposeTranscription},
 			{Provider: app.ProviderOpenAI, Name: app.DefaultChatModel, Purpose: app.ModelPurposeChat},
 		},
+	}
+}
+
+func ChatGPT() Provider {
+	return Provider{
+		ID:   app.ProviderChatGPT,
+		Name: "ChatGPT Plus/Pro (scaffolded, not implemented)",
 	}
 }
 

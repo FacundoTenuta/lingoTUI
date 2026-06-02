@@ -75,7 +75,7 @@ func RenderLines(status Status) []string {
 	if status.Ready {
 		lines = append(lines, "Setup ready. Use /connect, then /record mic when you choose to record.")
 	} else {
-		lines = append(lines, "Setup needs attention. Nothing records or calls OpenAI until you run an explicit command.")
+		lines = append(lines, "Setup needs attention. Nothing records, opens a browser, or calls a provider until you run an explicit command.")
 	}
 	for _, item := range status.Items {
 		lines = append(lines, renderItem(item))
@@ -96,7 +96,7 @@ func configStatus(path PathProvider) ItemStatus {
 
 func (s Service) credentialStatus(ctx context.Context, provider app.ProviderID) ItemStatus {
 	item := ItemStatus{
-		Name:   "OpenAI credentials",
+		Name:   credentialName(provider),
 		State:  StateMissing,
 		Secret: true,
 	}
@@ -105,17 +105,35 @@ func (s Service) credentialStatus(ctx context.Context, provider app.ProviderID) 
 	}
 	if s.Credentials == nil {
 		item.State = StateUnknown
-		item.Message = "credential store unavailable; run lingotui login or configure auth.json fallback before /connect"
+		item.Message = credentialUnavailableMessage(provider)
+		return item
+	}
+	if provider == app.ProviderChatGPT {
+		item.Message = "ChatGPT Plus/Pro OAuth is scaffolded but not implemented yet; lingotui login chatgpt will not open a browser or save credentials"
 		return item
 	}
 	secret, err := s.Credentials.Load(ctx, provider)
 	if err != nil || secret.Empty() {
-		item.Message = "missing; run lingotui login or configure auth.json fallback before /connect"
+		item.Message = "missing; run lingotui login openai or configure auth.json fallback before /connect"
 		return item
 	}
 	item.State = StateReady
 	item.Message = "configured via Keychain/auth.json fallback ([redacted]); run /connect when ready"
 	return item
+}
+
+func credentialName(provider app.ProviderID) string {
+	if provider == app.ProviderChatGPT {
+		return "ChatGPT Plus/Pro credentials"
+	}
+	return "OpenAI credentials"
+}
+
+func credentialUnavailableMessage(provider app.ProviderID) string {
+	if provider == app.ProviderChatGPT {
+		return "credential store unavailable; ChatGPT Plus/Pro OAuth is scaffolded but not implemented yet"
+	}
+	return "credential store unavailable; run lingotui login openai or configure auth.json fallback before /connect"
 }
 
 func (s Service) microphoneStatus(ctx context.Context) ItemStatus {

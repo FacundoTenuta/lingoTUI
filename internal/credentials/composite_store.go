@@ -26,6 +26,45 @@ func (s *CompositeStore) Save(ctx context.Context, provider app.ProviderID, secr
 	return s.primary.Save(ctx, provider, secret)
 }
 
+func (s *CompositeStore) SaveCredential(ctx context.Context, credential app.Credential) error {
+	primary, ok := s.primary.(app.AuthCredentialStore)
+	if s.primary == nil || !ok {
+		return ErrStoreUnavailable
+	}
+	return primary.SaveCredential(ctx, credential)
+}
+
+func (s *CompositeStore) LoadCredential(ctx context.Context, provider app.ProviderID, kind app.CredentialKind) (app.Credential, error) {
+	if primary, ok := s.primary.(app.AuthCredentialStore); s.primary != nil && ok {
+		credential, err := primary.LoadCredential(ctx, provider, kind)
+		if err == nil {
+			return credential, nil
+		}
+		if !isFallbackEligible(err) {
+			return app.Credential{}, err
+		}
+	}
+	if fallback, ok := s.fallback.(app.AuthCredentialStore); s.fallback != nil && ok {
+		return fallback.LoadCredential(ctx, provider, kind)
+	}
+	return app.Credential{}, ErrSecretNotFound
+}
+
+func (s *CompositeStore) DeleteCredential(ctx context.Context, provider app.ProviderID, kind app.CredentialKind) error {
+	var firstErr error
+	if primary, ok := s.primary.(app.AuthCredentialStore); s.primary != nil && ok {
+		if err := primary.DeleteCredential(ctx, provider, kind); err != nil && !isFallbackEligible(err) {
+			firstErr = err
+		}
+	}
+	if fallback, ok := s.fallback.(app.AuthCredentialStore); s.fallback != nil && ok {
+		if err := fallback.DeleteCredential(ctx, provider, kind); err != nil && !isFallbackEligible(err) && firstErr == nil {
+			firstErr = err
+		}
+	}
+	return firstErr
+}
+
 func (s *CompositeStore) Load(ctx context.Context, provider app.ProviderID) (app.Secret, error) {
 	if s.primary != nil {
 		secret, err := s.primary.Load(ctx, provider)

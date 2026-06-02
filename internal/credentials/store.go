@@ -16,6 +16,10 @@ type Record struct {
 	Secret   app.Secret     `json:"secret"`
 }
 
+func credentialAccount(provider app.ProviderID, kind app.CredentialKind) string {
+	return string(provider) + ":" + string(kind)
+}
+
 func (r Record) Redacted() Record {
 	r.Secret = app.Secret{Value: r.Secret.Redacted()}
 	return r

@@ -7,6 +7,7 @@ type AuthMethod string
 const (
 	AuthMethodAPIKey  AuthMethod = "api_key"
 	AuthMethodBrowser AuthMethod = "browser"
+	AuthMethodOAuth   AuthMethod = "oauth"
 )
 
 type Provider struct {
