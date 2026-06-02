@@ -26,6 +26,12 @@ type Model struct {
 
 type SubmitMsg struct{ Input string }
 
+type commandFinishedMsg struct {
+	Input  string
+	Result app.Result
+	Err    error
+}
+
 type inputMode int
 
 type statusState int
@@ -41,6 +47,7 @@ const (
 	statusInfo
 	statusSuccess
 	statusError
+	statusLoading
 )
 
 const readyStatusMessage = "Ready. Choose an action from the menu."

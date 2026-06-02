@@ -11,7 +11,9 @@ import (
 func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	switch msg := msg.(type) {
 	case SubmitMsg:
-		return m.submit(msg.Input), nil
+		return m.submit(msg.Input)
+	case commandFinishedMsg:
+		return m.finishCommand(msg), nil
 	case tea.KeyMsg:
 		switch msg.String() {
 		case "ctrl+c":
@@ -47,17 +49,23 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.Input += msg.String()
 		case "enter":
 			if m.inputMode == menuMode {
-				return m.submitMenuItem(), nil
+				return m.submitMenuItem()
 			}
 			if m.inputMode == askMode {
-				return m.submitAsk(), nil
+				return m.submitAsk()
 			}
-			return m.submit(m.Input), nil
+			return m.submit(m.Input)
 		case "backspace":
+			if m.Status == statusLoading {
+				return m, nil
+			}
 			if len(m.Input) > 0 {
 				m.Input = m.Input[:len(m.Input)-1]
 			}
 		default:
+			if m.Status == statusLoading {
+				return m, nil
+			}
 			if m.inputMode == menuMode {
 				m.inputMode = commandMode
 			}
@@ -67,9 +75,12 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	return m, nil
 }
 
-func (m Model) submitMenuItem() Model {
+func (m Model) submitMenuItem() (Model, tea.Cmd) {
+	if m.Status == statusLoading {
+		return m, nil
+	}
 	if len(menuItems) == 0 {
-		return m
+		return m, nil
 	}
 	if m.MenuIndex < 0 || m.MenuIndex >= len(menuItems) {
 		m.MenuIndex = 0
@@ -78,44 +89,70 @@ func (m Model) submitMenuItem() Model {
 	if item.Ask {
 		m.inputMode = askMode
 		m.Input = ""
-		return m
+		return m, nil
 	}
 	return m.submit(item.Command)
 }
 
-func (m Model) submitAsk() Model {
+func (m Model) submitAsk() (Model, tea.Cmd) {
+	if m.Status == statusLoading {
+		return m, nil
+	}
 	question := strings.TrimSpace(m.Input)
 	m.inputMode = menuMode
 	m.Input = ""
 	if question == "" {
-		return m
+		return m, nil
 	}
 	return m.submit("/ask " + question)
 }
 
-func (m Model) submit(input string) Model {
+func (m Model) submit(input string) (Model, tea.Cmd) {
+	if m.Status == statusLoading {
+		return m, nil
+	}
 	input = strings.TrimSpace(input)
 	m.Input = ""
 	m.inputMode = menuMode
 	if input == "" {
-		return m
+		return m, nil
 	}
 	m.Messages = append(m.Messages, "> "+input)
-	result, err := m.app.HandleInput(m.ctx, input)
-	if err != nil {
-		m.Err = err
+	m.Err = nil
+	m.Status = statusLoading
+	m.StatusMessage = loadingStatusMessage(input)
+	return m, func() tea.Msg {
+		result, err := m.app.HandleInput(m.ctx, input)
+		return commandFinishedMsg{Input: input, Result: result, Err: err}
+	}
+}
+
+func (m Model) finishCommand(msg commandFinishedMsg) Model {
+	if msg.Err != nil {
+		m.Err = msg.Err
 		m.Status = statusError
 		m.StatusMessage = "Fix the issue below, then try again or run /help."
-		m.Messages = append(m.Messages, "Error: "+cleanErrorMessage(err.Error()))
+		m.Messages = append(m.Messages, "Error: "+cleanErrorMessage(msg.Err.Error()))
 		return m
 	}
 	m.Err = nil
-	m.Status = statusForResult(result)
-	m.StatusMessage = statusMessageForResult(result)
-	for _, line := range formatResult(result) {
+	m.Status = statusForResult(msg.Result)
+	m.StatusMessage = statusMessageForResult(msg.Result)
+	for _, line := range formatResult(msg.Result) {
 		m.Messages = append(m.Messages, line)
 	}
 	return m
+}
+
+func loadingStatusMessage(input string) string {
+	if strings.HasPrefix(input, "/ask ") || input == "/ask" {
+		return "Processing request..."
+	}
+	command := input
+	if fields := strings.Fields(input); len(fields) > 0 {
+		command = fields[0]
+	}
+	return "Running " + command + "..."
 }
 
 func statusForResult(result app.Result) statusState {

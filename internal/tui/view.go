@@ -12,6 +12,7 @@ var (
 	infoStyle    = lipgloss.NewStyle().Foreground(lipgloss.Color("39"))
 	successStyle = lipgloss.NewStyle().Foreground(lipgloss.Color("42"))
 	errorStyle   = lipgloss.NewStyle().Foreground(lipgloss.Color("204"))
+	loadingStyle = lipgloss.NewStyle().Foreground(lipgloss.Color("220"))
 	promptStyle  = lipgloss.NewStyle().Foreground(lipgloss.Color("42"))
 )
 
@@ -103,6 +104,9 @@ func (m Model) statusLine() string {
 	case statusError:
 		line = "Error: " + message
 		return errorStyle.Render(line)
+	case statusLoading:
+		line = "Loading: " + message
+		return loadingStyle.Render(line)
 	default:
 		return line
 	}

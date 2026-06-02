@@ -78,11 +78,86 @@ func TestModelUpdateMenuNavigationDoesNotCallApp(t *testing.T) {
 	}
 }
 
+func TestModelSubmitStartsLoadingBeforeCommandRuns(t *testing.T) {
+	fake := &fakeApp{result: app.Result{Command: app.CommandConnect, Message: "connected"}}
+	model, cmd := submitModelPending(t, NewModel(fake), "  /connect  ")
+	view := model.View()
+
+	if cmd == nil {
+		t.Fatal("expected submit to return command")
+	}
+	if got := strings.Join(fake.inputs, ","); got != "" {
+		t.Fatalf("app called before command execution: %q", got)
+	}
+	if model.Status != statusLoading || model.StatusMessage != "Running /connect..." {
+		t.Fatalf("status=%v message=%q", model.Status, model.StatusMessage)
+	}
+	if model.Input != "" || model.inputMode != menuMode {
+		t.Fatalf("input=%q mode=%v", model.Input, model.inputMode)
+	}
+	if !strings.Contains(view, "> /connect") || strings.Contains(view, "connected") {
+		t.Fatalf("view should show command but not result before cmd runs: %s", view)
+	}
+}
+
+func TestModelCommandCompletionAppliesResultAndError(t *testing.T) {
+	tests := []struct {
+		name       string
+		result     app.Result
+		err        error
+		wantStatus statusState
+		wantView   string
+	}{
+		{
+			name:       "success",
+			result:     app.Result{Command: app.CommandConnect, Message: "connected"},
+			wantStatus: statusSuccess,
+			wantView:   "Success: connected",
+		},
+		{
+			name:       "info",
+			result:     app.Result{Command: app.CommandModels, Message: "listed"},
+			wantStatus: statusInfo,
+			wantView:   "Info: listed",
+		},
+		{
+			name:       "error",
+			err:        errors.New("provider unavailable"),
+			wantStatus: statusError,
+			wantView:   "Error: provider unavailable",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			fake := &fakeApp{result: tt.result, err: tt.err}
+			model, cmd := submitModelPending(t, NewModel(fake), "/connect")
+			model = applyCommand(t, model, cmd)
+
+			if model.Status != tt.wantStatus {
+				t.Fatalf("status=%v want=%v", model.Status, tt.wantStatus)
+			}
+			if !strings.Contains(model.View(), tt.wantView) {
+				t.Fatalf("view missing %q: %s", tt.wantView, model.View())
+			}
+		})
+	}
+}
+
 func TestModelUpdateEnterDispatchesSelectedStaticCommand(t *testing.T) {
 	fake := &fakeApp{result: app.Result{Message: "help shown"}}
 	model := NewModel(fake)
 	model = updateModel(t, model, tea.KeyMsg{Type: tea.KeyDown})
-	model = updateModel(t, model, tea.KeyMsg{Type: tea.KeyEnter})
+	model, cmd := updateModelWithCmd(t, model, tea.KeyMsg{Type: tea.KeyEnter})
+
+	if got := strings.Join(fake.inputs, ","); got != "" {
+		t.Fatalf("app called before command execution: %q", got)
+	}
+	if cmd == nil || model.Status != statusLoading || !strings.Contains(model.View(), "Loading: Running /help...") {
+		t.Fatalf("expected loading with returned command, status=%v cmd=%v view=%s", model.Status, cmd, model.View())
+	}
+
+	model = applyCommand(t, model, cmd)
 
 	if got, want := strings.Join(fake.inputs, ","), "/help"; got != want {
 		t.Fatalf("inputs = %q, want %q", got, want)
@@ -93,7 +168,7 @@ func TestModelUpdateEnterDispatchesSelectedStaticCommand(t *testing.T) {
 }
 
 func TestModelUpdateAskOptionSubmitsQuestion(t *testing.T) {
-	fake := &fakeApp{result: app.Result{Message: "answered"}}
+	fake := &fakeApp{result: app.Result{Command: app.CommandAsk, Message: "answered"}}
 	model := NewModel(fake)
 
 	model = updateModel(t, model, tea.KeyMsg{Type: tea.KeyEnter})
@@ -102,13 +177,53 @@ func TestModelUpdateAskOptionSubmitsQuestion(t *testing.T) {
 	}
 
 	model = updateModel(t, model, tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("what happened?")})
-	model = updateModel(t, model, tea.KeyMsg{Type: tea.KeyEnter})
+	model, cmd := updateModelWithCmd(t, model, tea.KeyMsg{Type: tea.KeyEnter})
+
+	if got := strings.Join(fake.inputs, ","); got != "" {
+		t.Fatalf("app called before ask command execution: %q", got)
+	}
+	if cmd == nil || model.Status != statusLoading || model.StatusMessage != "Processing request..." {
+		t.Fatalf("status=%v message=%q cmd=%v", model.Status, model.StatusMessage, cmd)
+	}
+
+	model = applyCommand(t, model, cmd)
 
 	if got, want := strings.Join(fake.inputs, ","), "/ask what happened?"; got != want {
 		t.Fatalf("inputs = %q, want %q", got, want)
 	}
 	if model.inputMode != menuMode || model.Input != "" {
 		t.Fatalf("mode=%v input=%q", model.inputMode, model.Input)
+	}
+}
+
+func TestModelUpdateIgnoresNewSubmissionsWhileLoading(t *testing.T) {
+	fake := &fakeApp{result: app.Result{Command: app.CommandConnect, Message: "connected"}}
+	model, firstCmd := submitModelPending(t, NewModel(fake), "/connect")
+
+	model = updateModel(t, model, tea.KeyMsg{Type: tea.KeyDown})
+	if model.MenuIndex != 1 || model.Status != statusLoading {
+		t.Fatalf("navigation while loading failed: index=%d status=%v", model.MenuIndex, model.Status)
+	}
+	model = updateModel(t, model, tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("/models")})
+	if model.inputMode != menuMode || model.Input != "" {
+		t.Fatalf("typing while loading should be ignored: mode=%v input=%q", model.inputMode, model.Input)
+	}
+
+	model, secondCmd := updateModelWithCmd(t, model, tea.KeyMsg{Type: tea.KeyEnter})
+	if secondCmd != nil {
+		t.Fatal("expected enter submission while loading to be ignored")
+	}
+	model, thirdCmd := updateModelWithCmd(t, model, Submit("/models"))
+	if thirdCmd != nil {
+		t.Fatal("expected SubmitMsg while loading to be ignored")
+	}
+	if got := strings.Join(fake.inputs, ","); got != "" {
+		t.Fatalf("app called before first command execution: %q", got)
+	}
+
+	model = applyCommand(t, model, firstCmd)
+	if got, want := strings.Join(fake.inputs, ","), "/connect"; got != want {
+		t.Fatalf("inputs = %q, want %q", got, want)
 	}
 }
 
@@ -155,6 +270,13 @@ func TestModelUpdateEscCancelsInputModes(t *testing.T) {
 	}
 }
 
+func TestModelUpdateEscQuitsFromMenu(t *testing.T) {
+	_, cmd := NewModel(&fakeApp{}).Update(tea.KeyMsg{Type: tea.KeyEsc})
+	if cmd == nil {
+		t.Fatal("expected esc to quit from menu mode")
+	}
+}
+
 func TestModelUpdateEnterClampsInvalidMenuIndex(t *testing.T) {
 	fake := &fakeApp{result: app.Result{Message: "answered"}}
 	model := NewModel(fake)
@@ -169,7 +291,12 @@ func TestModelUpdateEnterClampsInvalidMenuIndex(t *testing.T) {
 
 func TestModelUpdateSubmitMsgDirectCommandStillWorks(t *testing.T) {
 	fake := &fakeApp{result: app.Result{Command: app.CommandModels, Message: "listed"}}
-	model := submitModel(t, NewModel(fake), "/models")
+	model, cmd := submitModelPending(t, NewModel(fake), "/models")
+
+	if got := strings.Join(fake.inputs, ","); got != "" {
+		t.Fatalf("app called before SubmitMsg command execution: %q", got)
+	}
+	model = applyCommand(t, model, cmd)
 
 	if got, want := strings.Join(fake.inputs, ","), "/models"; got != want {
 		t.Fatalf("inputs = %q, want %q", got, want)
@@ -311,7 +438,28 @@ func TestModelUpdateShowsProviderAndRecorderErrors(t *testing.T) {
 
 func submitModel(t *testing.T, model Model, input string) Model {
 	t.Helper()
-	updated, _ := model.Update(Submit(input))
+	updated, cmd := model.Update(Submit(input))
+	result := modelFromTea(t, updated)
+	if cmd == nil {
+		return result
+	}
+	return applyCommand(t, result, cmd)
+}
+
+func submitModelPending(t *testing.T, model Model, input string) (Model, tea.Cmd) {
+	t.Helper()
+	return updateModelWithCmd(t, model, Submit(input))
+}
+
+func applyCommand(t *testing.T, model Model, cmd tea.Cmd) Model {
+	t.Helper()
+	if cmd == nil {
+		t.Fatal("expected command")
+	}
+	updated, nextCmd := model.Update(cmd())
+	if nextCmd != nil {
+		t.Fatal("expected command completion not to return another command")
+	}
 	return modelFromTea(t, updated)
 }
 
@@ -319,6 +467,12 @@ func updateModel(t *testing.T, model Model, msg tea.Msg) Model {
 	t.Helper()
 	updated, _ := model.Update(msg)
 	return modelFromTea(t, updated)
+}
+
+func updateModelWithCmd(t *testing.T, model Model, msg tea.Msg) (Model, tea.Cmd) {
+	t.Helper()
+	updated, cmd := model.Update(msg)
+	return modelFromTea(t, updated), cmd
 }
 
 func modelFromTea(t *testing.T, updated tea.Model) Model {

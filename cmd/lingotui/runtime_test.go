@@ -75,9 +75,22 @@ func TestBuildRuntimeAllowsExplicitRecordOnlyAfterUserCommand(t *testing.T) {
 		t.Fatalf("startup recorder starts = %d, want 0", recorder.starts)
 	}
 
-	updated, _ := model.Update(tui.Submit("/record mic"))
+	updated, cmd := model.Update(tui.Submit("/record mic"))
 	if _, ok := updated.(tui.Model); !ok {
 		t.Fatalf("updated model = %T, want tui.Model", updated)
+	}
+	if cmd == nil {
+		t.Fatal("expected explicit command to return async command")
+	}
+	if recorder.starts != 0 {
+		t.Fatalf("recorder starts before async command executes = %d, want 0", recorder.starts)
+	}
+	updated, nextCmd := updated.Update(cmd())
+	if _, ok := updated.(tui.Model); !ok {
+		t.Fatalf("completed model = %T, want tui.Model", updated)
+	}
+	if nextCmd != nil {
+		t.Fatal("expected command completion not to return another command")
 	}
 	if recorder.starts != 1 {
 		t.Fatalf("recorder starts after explicit command = %d, want 1", recorder.starts)
