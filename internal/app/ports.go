@@ -13,6 +13,7 @@ type Transcriber interface {
 
 type Chat interface {
 	Summarize(context.Context, Transcript, []Language, ModelRef) (Summary, error)
+	Translate(context.Context, string, []Language, ModelRef) (Translations, error)
 	Answer(context.Context, Question, RecentContext, ModelRef) (Answer, error)
 }
 

@@ -54,6 +54,9 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			if m.inputMode == askMode {
 				return m.submitAsk()
 			}
+			if m.inputMode == translateMode {
+				return m.submitTranslate()
+			}
 			return m.submit(m.Input)
 		case "backspace":
 			if m.Status == statusLoading {
@@ -91,6 +94,11 @@ func (m Model) submitMenuItem() (Model, tea.Cmd) {
 		m.Input = ""
 		return m, nil
 	}
+	if item.Translate {
+		m.inputMode = translateMode
+		m.Input = ""
+		return m, nil
+	}
 	return m.submit(item.Command)
 }
 
@@ -105,6 +113,19 @@ func (m Model) submitAsk() (Model, tea.Cmd) {
 		return m, nil
 	}
 	return m.submit("/ask " + question)
+}
+
+func (m Model) submitTranslate() (Model, tea.Cmd) {
+	if m.Status == statusLoading {
+		return m, nil
+	}
+	text := strings.TrimSpace(m.Input)
+	m.inputMode = menuMode
+	m.Input = ""
+	if text == "" {
+		return m, nil
+	}
+	return m.submit("/translate " + text)
 }
 
 func (m Model) submit(input string) (Model, tea.Cmd) {
@@ -145,7 +166,7 @@ func (m Model) finishCommand(msg commandFinishedMsg) Model {
 }
 
 func loadingStatusMessage(input string) string {
-	if strings.HasPrefix(input, "/ask ") || input == "/ask" {
+	if strings.HasPrefix(input, "/ask ") || input == "/ask" || strings.HasPrefix(input, "/translate ") || input == "/translate" {
 		return "Processing request..."
 	}
 	command := input
@@ -159,7 +180,7 @@ func statusForResult(result app.Result) statusState {
 	switch result.Command {
 	case app.CommandHelp, app.CommandModels:
 		return statusInfo
-	case app.CommandConnect, app.CommandRecord, app.CommandStop, app.CommandAsk, app.CommandClear:
+	case app.CommandConnect, app.CommandRecord, app.CommandStop, app.CommandAsk, app.CommandTranslate, app.CommandClear:
 		return statusSuccess
 	default:
 		return statusIdle
@@ -183,6 +204,8 @@ func statusMessageForResult(result app.Result) string {
 		return "Stop command completed."
 	case app.CommandAsk:
 		return "Answer is shown below."
+	case app.CommandTranslate:
+		return "Translations are shown below."
 	case app.CommandClear:
 		return "Context cleared."
 	default:
@@ -246,6 +269,15 @@ func formatResult(result app.Result) []string {
 			lines = append(lines, "Summary:")
 			for _, block := range summaryBlocks {
 				lines = appendBlock(lines, "  "+block.label, block.text)
+			}
+		}
+		return lines
+	}
+	if result.Command == app.CommandTranslate && len(result.Translations) > 0 {
+		lines := []string{result.Message, "Translations:"}
+		for _, language := range app.SummaryLanguages() {
+			if text := result.Translations[language]; text != "" {
+				lines = appendBlock(lines, "  "+strings.ToUpper(string(language)), text)
 			}
 		}
 		return lines

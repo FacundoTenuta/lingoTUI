@@ -81,6 +81,8 @@ func (m Model) View() string {
 	}
 	if m.inputMode == askMode {
 		b.WriteString(promptStyle.Render("Ask > "))
+	} else if m.inputMode == translateMode {
+		b.WriteString(promptStyle.Render("Translate > "))
 	} else {
 		b.WriteString(promptStyle.Render("> "))
 	}

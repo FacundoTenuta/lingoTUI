@@ -151,6 +151,31 @@ func (c *Client) Answer(ctx context.Context, question app.Question, recent app.R
 	return app.Answer(strings.TrimSpace(content)), nil
 }
 
+func (c *Client) Translate(ctx context.Context, text string, languages []app.Language, model app.ModelRef) (app.Translations, error) {
+	languageNames := make([]string, 0, len(languages))
+	for _, language := range languages {
+		languageNames = append(languageNames, string(language))
+	}
+	content, err := c.chat(ctx, model, []chatMessage{
+		{Role: "system", Content: "Translate user text for language learners. Respond only with a compact JSON object whose keys are the requested language codes and whose values are direct translations."},
+		{Role: "user", Content: fmt.Sprintf("Languages: %s\nText:\n%s", strings.Join(languageNames, ", "), text)},
+	}, true)
+	if err != nil {
+		return nil, err
+	}
+	var raw map[string]string
+	if err := json.Unmarshal([]byte(content), &raw); err != nil {
+		return nil, fmt.Errorf("parse translation response: %w", err)
+	}
+	translations := app.Translations{}
+	for _, language := range languages {
+		if translated := strings.TrimSpace(raw[string(language)]); translated != "" {
+			translations[language] = translated
+		}
+	}
+	return translations, nil
+}
+
 type chatMessage struct {
 	Role    string `json:"role"`
 	Content string `json:"content"`

@@ -40,6 +40,7 @@ const (
 	menuMode inputMode = iota
 	commandMode
 	askMode
+	translateMode
 )
 
 const (
@@ -57,10 +58,12 @@ type menuItem struct {
 	Description string
 	Command     string
 	Ask         bool
+	Translate   bool
 }
 
 var menuItems = []menuItem{
 	{Label: "Ask", Description: "Ask a question using the current context", Ask: true},
+	{Label: "Translate", Description: "Translate text into ES/EN/DE", Translate: true},
 	{Label: "Help", Description: "Show available commands", Command: "/help"},
 	{Label: "Models", Description: "List configured models", Command: "/models"},
 	{Label: "Record mic", Description: "Start recording from the microphone", Command: "/record mic"},

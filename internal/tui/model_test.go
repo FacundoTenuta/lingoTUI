@@ -20,7 +20,7 @@ func TestModelUpdateShowsHelp(t *testing.T) {
 	if updated.Status != statusInfo || !strings.Contains(view, "Info: Supported commands:") {
 		t.Fatalf("expected info status, status=%v view=%s", updated.Status, view)
 	}
-	if !strings.Contains(view, "/record mic") || !strings.Contains(view, "/ask <question>") || !strings.Contains(view, "auth.json") {
+	if !strings.Contains(view, "/record mic") || !strings.Contains(view, "/ask <question>") || !strings.Contains(view, "/translate <text>") || !strings.Contains(view, "auth.json") {
 		t.Fatalf("view missing help: %s", view)
 	}
 }
@@ -53,7 +53,7 @@ func TestNewModelShowsInteractiveMenu(t *testing.T) {
 	model := NewModel(fake)
 	view := model.View()
 
-	for _, want := range []string{"Use up/down or k/j", "> Ask", "Record mic", "Connect"} {
+	for _, want := range []string{"Use up/down or k/j", "> Ask", "Translate", "Record mic", "Connect"} {
 		if !strings.Contains(view, want) {
 			t.Fatalf("view missing %q: %s", want, view)
 		}
@@ -148,6 +148,7 @@ func TestModelUpdateEnterDispatchesSelectedStaticCommand(t *testing.T) {
 	fake := &fakeApp{result: app.Result{Message: "help shown"}}
 	model := NewModel(fake)
 	model = updateModel(t, model, tea.KeyMsg{Type: tea.KeyDown})
+	model = updateModel(t, model, tea.KeyMsg{Type: tea.KeyDown})
 	model, cmd := updateModelWithCmd(t, model, tea.KeyMsg{Type: tea.KeyEnter})
 
 	if got := strings.Join(fake.inputs, ","); got != "" {
@@ -196,6 +197,48 @@ func TestModelUpdateAskOptionSubmitsQuestion(t *testing.T) {
 	}
 }
 
+func TestModelUpdateTranslateOptionSubmitsText(t *testing.T) {
+	fake := &fakeApp{result: app.Result{Command: app.CommandTranslate, Message: "translated"}}
+	model := NewModel(fake)
+	model = updateModel(t, model, tea.KeyMsg{Type: tea.KeyDown})
+
+	model = updateModel(t, model, tea.KeyMsg{Type: tea.KeyEnter})
+	if model.inputMode != translateMode || !strings.Contains(model.View(), "Translate > ") {
+		t.Fatalf("expected translate mode, got mode=%v view=%s", model.inputMode, model.View())
+	}
+
+	model = updateModel(t, model, tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("hola mundo")})
+	model, cmd := updateModelWithCmd(t, model, tea.KeyMsg{Type: tea.KeyEnter})
+
+	if got := strings.Join(fake.inputs, ","); got != "" {
+		t.Fatalf("app called before translate command execution: %q", got)
+	}
+	if cmd == nil || model.Status != statusLoading || model.StatusMessage != "Processing request..." {
+		t.Fatalf("status=%v message=%q cmd=%v", model.Status, model.StatusMessage, cmd)
+	}
+
+	model = applyCommand(t, model, cmd)
+
+	if got, want := strings.Join(fake.inputs, ","), "/translate hola mundo"; got != want {
+		t.Fatalf("inputs = %q, want %q", got, want)
+	}
+	if model.inputMode != menuMode || model.Input != "" {
+		t.Fatalf("mode=%v input=%q", model.inputMode, model.Input)
+	}
+}
+
+func TestModelUpdateTranslateOptionIgnoresEmptyText(t *testing.T) {
+	fake := &fakeApp{}
+	model := NewModel(fake)
+	model = updateModel(t, model, tea.KeyMsg{Type: tea.KeyDown})
+	model = updateModel(t, model, tea.KeyMsg{Type: tea.KeyEnter})
+	model, cmd := updateModelWithCmd(t, model, tea.KeyMsg{Type: tea.KeyEnter})
+
+	if cmd != nil || len(fake.inputs) != 0 || model.inputMode != menuMode {
+		t.Fatalf("empty translate should only return to menu, cmd=%v inputs=%v mode=%v", cmd, fake.inputs, model.inputMode)
+	}
+}
+
 func TestModelUpdateIgnoresNewSubmissionsWhileLoading(t *testing.T) {
 	fake := &fakeApp{result: app.Result{Command: app.CommandConnect, Message: "connected"}}
 	model, firstCmd := submitModelPending(t, NewModel(fake), "/connect")
@@ -234,6 +277,7 @@ func TestModelUpdateCtrlCQuitsFromAllModes(t *testing.T) {
 	}{
 		{name: "menu", model: NewModel(&fakeApp{})},
 		{name: "ask", model: Model{app: &fakeApp{}, inputMode: askMode, Input: "question"}},
+		{name: "translate", model: Model{app: &fakeApp{}, inputMode: translateMode, Input: "text"}},
 		{name: "command", model: Model{app: &fakeApp{}, inputMode: commandMode, Input: "/help"}},
 	}
 
@@ -253,6 +297,7 @@ func TestModelUpdateEscCancelsInputModes(t *testing.T) {
 		model Model
 	}{
 		{name: "ask", model: Model{app: &fakeApp{}, inputMode: askMode, Input: "question"}},
+		{name: "translate", model: Model{app: &fakeApp{}, inputMode: translateMode, Input: "text"}},
 		{name: "command", model: Model{app: &fakeApp{}, inputMode: commandMode, Input: "/help"}},
 	}
 
@@ -418,6 +463,26 @@ func TestModelStopResultShowsTranscriptAndSummariesInHistory(t *testing.T) {
 	view := model.View()
 
 	for _, want := range []string{"History", "> /stop", "Transcript:", "full transcript line one", "full transcript line two", "Summary:", "ES:", "resumen en español", "segunda línea", "EN:", "summary in English", "second line", "DE:", "Zusammenfassung auf Deutsch", "zweite Zeile"} {
+		if !strings.Contains(view, want) {
+			t.Fatalf("view missing %q: %s", want, view)
+		}
+	}
+}
+
+func TestModelTranslateResultShowsTranslationsInHistory(t *testing.T) {
+	fake := &fakeApp{result: app.Result{
+		Command: app.CommandTranslate,
+		Message: "Translated text into ES/EN/DE.",
+		Translations: app.Translations{
+			app.LanguageSpanish: "hola",
+			app.LanguageEnglish: "hello",
+			app.LanguageGerman:  "hallo",
+		},
+	}}
+	model := submitModel(t, NewModel(fake), "/translate hello")
+	view := model.View()
+
+	for _, want := range []string{"History", "> /translate hello", "Translations:", "ES:", "hola", "EN:", "hello", "DE:", "hallo"} {
 		if !strings.Contains(view, want) {
 			t.Fatalf("view missing %q: %s", want, view)
 		}

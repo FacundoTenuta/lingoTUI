@@ -14,14 +14,15 @@ var (
 type CommandKind string
 
 const (
-	CommandEmpty   CommandKind = "empty"
-	CommandConnect CommandKind = "connect"
-	CommandModels  CommandKind = "models"
-	CommandRecord  CommandKind = "record"
-	CommandStop    CommandKind = "stop"
-	CommandAsk     CommandKind = "ask"
-	CommandClear   CommandKind = "clear"
-	CommandHelp    CommandKind = "help"
+	CommandEmpty     CommandKind = "empty"
+	CommandConnect   CommandKind = "connect"
+	CommandModels    CommandKind = "models"
+	CommandRecord    CommandKind = "record"
+	CommandStop      CommandKind = "stop"
+	CommandAsk       CommandKind = "ask"
+	CommandTranslate CommandKind = "translate"
+	CommandClear     CommandKind = "clear"
+	CommandHelp      CommandKind = "help"
 )
 
 type Command struct {
@@ -29,6 +30,7 @@ type Command struct {
 	Raw      string
 	Source   AudioSource
 	Question string
+	Text     string
 }
 
 func ParseCommand(input string) (Command, error) {
@@ -56,6 +58,13 @@ func ParseCommand(input string) (Command, error) {
 			return cmd, ErrMissingCommandArgument
 		}
 		cmd.Question = question
+	case "/translate":
+		cmd.Kind = CommandTranslate
+		text := strings.TrimSpace(strings.TrimPrefix(raw, "/translate"))
+		if text == "" {
+			return cmd, ErrMissingCommandArgument
+		}
+		cmd.Text = text
 	case "/record":
 		cmd.Kind = CommandRecord
 		if len(parts) < 2 {
@@ -83,6 +92,7 @@ func HelpEntries() []HelpEntry {
 		{"/record mic", "start microphone recording"},
 		{"/stop", "stop recording for processing"},
 		{"/ask <question>", "ask about the recent transcript and summary"},
+		{"/translate <text>", "translate text into ES/EN/DE using the configured chat model"},
 		{"/clear", "clear in-memory transcript and summary context"},
 		{"/help", "show supported commands"},
 	}
@@ -91,7 +101,7 @@ func HelpEntries() []HelpEntry {
 func DefaultSetupGuidance() []string {
 	return []string{
 		"OpenAI: run lingotui login openai to save your API key to macOS Keychain, or configure auth.json fallback for development, then run /connect. Secret values are never printed.",
-		"ChatGPT Plus/Pro: run lingotui login chatgpt to complete browser OAuth login. OpenAI remains the default; set chat_model.provider to chatgpt manually for experimental ChatGPT/Codex chat. Provider calls happen only on /stop or /ask.",
+		"ChatGPT Plus/Pro: run lingotui login chatgpt to complete browser OAuth login. OpenAI remains the default; set chat_model.provider to chatgpt manually for experimental ChatGPT/Codex chat. Provider calls happen only on /stop, /ask, or /translate.",
 		"LocalWhisper: install whisper-cli externally and configure local_whisper.binary_path and local_whisper.model_path for local transcription. Setup does not verify model files or execute whisper until /stop.",
 		"Microphone: grant macOS microphone permission before /record mic. Recording starts only after that command.",
 	}

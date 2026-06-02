@@ -73,6 +73,41 @@ func (c *Chat) Answer(ctx context.Context, question app.Question, recent app.Rec
 	return app.Answer(strings.TrimSpace(response.Text)), nil
 }
 
+func (c *Chat) Translate(ctx context.Context, text string, languages []app.Language, model app.ModelRef) (app.Translations, error) {
+	languageCodes := make([]string, 0, len(languages))
+	for _, language := range languages {
+		languageCodes = append(languageCodes, string(language))
+	}
+
+	response, err := c.create(ctx, ResponseRequest{
+		Model: strings.TrimSpace(model.Name),
+		Messages: []Message{
+			{Role: "system", Text: "Translate user text for language learners. Respond only with a compact JSON object whose keys are the requested language codes and whose values are direct translations."},
+			{Role: "user", Text: fmt.Sprintf("Languages: %s\nText:\n%s", strings.Join(languageCodes, ", "), text)},
+		},
+	})
+	if err != nil {
+		return nil, err
+	}
+
+	responseText := strings.TrimSpace(response.Text)
+	if responseText == "" {
+		return nil, errors.New("parse ChatGPT Codex translation response: response contained no text")
+	}
+	var raw map[string]string
+	if err := json.Unmarshal([]byte(responseText), &raw); err != nil {
+		return nil, fmt.Errorf("parse ChatGPT Codex translation response: %w", err)
+	}
+
+	translations := app.Translations{}
+	for _, language := range languages {
+		if value := strings.TrimSpace(raw[string(language)]); value != "" {
+			translations[language] = value
+		}
+	}
+	return translations, nil
+}
+
 func (c *Chat) create(ctx context.Context, req ResponseRequest) (Response, error) {
 	if c == nil || c.Client == nil {
 		return Response{}, errors.New("ChatGPT Codex chat client is required")

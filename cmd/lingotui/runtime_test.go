@@ -55,7 +55,7 @@ func TestBuildRuntimeStartsWithOnboardingAndNoExternalSideEffects(t *testing.T) 
 	if audioChecker.checks != 1 {
 		t.Fatalf("audio checks = %d, want 1 setup-only status check", audioChecker.checks)
 	}
-	if recorder.starts != 0 || recorder.stops != 0 || provider.transcribes != 0 || provider.summarizes != 0 || provider.answers != 0 {
+	if recorder.starts != 0 || recorder.stops != 0 || provider.transcribes != 0 || provider.summarizes != 0 || provider.answers != 0 || provider.translates != 0 {
 		t.Fatalf("startup side effects: recorder=%+v provider=%+v", recorder, provider)
 	}
 }
@@ -154,7 +154,7 @@ func TestBuildRuntimeWiresPureLocalWhisperAndChatGPTWithoutOpenAILoad(t *testing
 	if chatCalls != 1 {
 		t.Fatalf("ChatGPT chat constructor calls = %d, want 1", chatCalls)
 	}
-	if local.transcribes != 0 || chat.summarizes != 0 || chat.answers != 0 {
+	if local.transcribes != 0 || chat.summarizes != 0 || chat.answers != 0 || chat.translates != 0 {
 		t.Fatalf("startup provider calls: local=%+v chat=%+v", local, chat)
 	}
 }
@@ -404,6 +404,7 @@ type countingProvider struct {
 	transcribes int
 	summarizes  int
 	answers     int
+	translates  int
 }
 
 func (p *countingProvider) Transcribe(context.Context, app.AudioFile, app.ModelRef) (app.Transcript, error) {
@@ -419,6 +420,11 @@ func (p *countingProvider) Summarize(context.Context, app.Transcript, []app.Lang
 func (p *countingProvider) Answer(context.Context, app.Question, app.RecentContext, app.ModelRef) (app.Answer, error) {
 	p.answers++
 	return app.Answer("answer"), nil
+}
+
+func (p *countingProvider) Translate(context.Context, string, []app.Language, app.ModelRef) (app.Translations, error) {
+	p.translates++
+	return app.Translations{}, nil
 }
 
 type countingAudioChecker struct {

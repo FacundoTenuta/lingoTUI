@@ -54,7 +54,7 @@ func TestServiceConnectChecksMixedRuntimeLocallyWithoutProviderCalls(t *testing.
 	if err != nil {
 		t.Fatal(err)
 	}
-	for _, want := range []string{"localwhisper/ggml-small.bin", "chatgpt/configured-chatgpt-model", "Provider calls happen only on /stop or /ask"} {
+	for _, want := range []string{"localwhisper/ggml-small.bin", "chatgpt/configured-chatgpt-model", "Provider calls happen only on /stop, /ask, or /translate"} {
 		if !strings.Contains(result.Message, want) {
 			t.Fatalf("message missing %q: %s", want, result.Message)
 		}
@@ -295,6 +295,52 @@ func TestServiceRecordStopSummarizeAskAndClear(t *testing.T) {
 	}
 }
 
+func TestServiceTranslateUsesChatModelWithoutRecentContext(t *testing.T) {
+	provider := &recordingProvider{translations: Translations{
+		LanguageSpanish: "hola",
+		LanguageEnglish: "hello",
+		LanguageGerman:  "hallo",
+	}}
+	contexts := &testutil.ContextStore{}
+	service := NewService(Dependencies{
+		Chat: provider,
+		Config: &testutil.ConfigStore{Config: Config{
+			TranscriptionModel: ModelRef{Provider: ProviderLocalWhisper, Name: "ggml-small.bin", Purpose: ModelPurposeTranscription},
+			ChatModel:          ModelRef{Provider: ProviderChatGPT, Name: "configured-chatgpt-model", Purpose: ModelPurposeChat},
+		}},
+		Context: contexts,
+	})
+
+	result, err := service.Translate(context.Background(), " hello ")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result.Command != CommandTranslate || result.Translations[LanguageGerman] != "hallo" {
+		t.Fatalf("result = %+v", result)
+	}
+	if provider.translationText != "hello" {
+		t.Fatalf("translation text = %q, want hello", provider.translationText)
+	}
+	if !reflect.DeepEqual(provider.translationLanguages, SummaryLanguages()) {
+		t.Fatalf("translation languages = %+v", provider.translationLanguages)
+	}
+	if provider.translationModel.Provider != ProviderChatGPT || provider.translationModel.Name != "configured-chatgpt-model" {
+		t.Fatalf("translation model = %+v", provider.translationModel)
+	}
+	if contexts.Has {
+		t.Fatalf("translate should not store or require recent context: %+v", contexts)
+	}
+}
+
+func TestServiceTranslateMissingTextUsesMissingArgumentError(t *testing.T) {
+	service := NewService(Dependencies{Chat: &recordingProvider{}})
+
+	_, err := service.Translate(context.Background(), "  ")
+	if !errors.Is(err, ErrMissingCommandArgument) {
+		t.Fatalf("error = %v, want %v", err, ErrMissingCommandArgument)
+	}
+}
+
 func TestServicePropagatesRecorderAndProviderErrors(t *testing.T) {
 	tests := []struct {
 		name string
@@ -367,7 +413,7 @@ func TestServiceHelpIncludesSetupGuidance(t *testing.T) {
 		t.Fatalf("help result = %+v", result)
 	}
 	joined := strings.Join(result.Guidance, "\n")
-	for _, want := range []string{"lingotui login openai", "lingotui login chatgpt", "auth.json fallback", "/connect", "/record mic", "Provider calls happen only on /stop or /ask"} {
+	for _, want := range []string{"lingotui login openai", "lingotui login chatgpt", "auth.json fallback", "/connect", "/record mic", "Provider calls happen only on /stop, /ask, or /translate"} {
 		if !strings.Contains(joined, want) {
 			t.Fatalf("guidance missing %q: %s", want, joined)
 		}
@@ -431,11 +477,15 @@ func TestServiceStopFailureClearsRecordingState(t *testing.T) {
 }
 
 type recordingProvider struct {
-	transcript Transcript
-	summary    Summary
-	answer     Answer
-	languages  []Language
-	question   Question
+	transcript           Transcript
+	summary              Summary
+	answer               Answer
+	translations         Translations
+	languages            []Language
+	question             Question
+	translationText      string
+	translationLanguages []Language
+	translationModel     ModelRef
 }
 
 type mixedCredentialStore struct {
@@ -472,6 +522,13 @@ func (s *mixedCredentialStore) LoadCredential(context.Context, ProviderID, Crede
 
 func (s *mixedCredentialStore) DeleteCredential(context.Context, ProviderID, CredentialKind) error {
 	return nil
+}
+
+func (p *recordingProvider) Translate(_ context.Context, text string, languages []Language, model ModelRef) (Translations, error) {
+	p.translationText = text
+	p.translationLanguages = append([]Language(nil), languages...)
+	p.translationModel = model
+	return p.translations, nil
 }
 
 func (p *recordingProvider) Transcribe(context.Context, AudioFile, ModelRef) (Transcript, error) {

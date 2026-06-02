@@ -30,10 +30,11 @@ func (r *Recorder) Start(_ context.Context, source app.AudioSource) error {
 func (r *Recorder) Stop(context.Context) (app.AudioFile, error) { return r.File, r.StopErr }
 
 type Provider struct {
-	Transcript app.Transcript
-	Summary    app.Summary
-	AnswerText app.Answer
-	Err        error
+	Transcript   app.Transcript
+	Summary      app.Summary
+	Translations app.Translations
+	AnswerText   app.Answer
+	Err          error
 }
 
 func (p Provider) Transcribe(context.Context, app.AudioFile, app.ModelRef) (app.Transcript, error) {
@@ -46,6 +47,10 @@ func (p Provider) Summarize(context.Context, app.Transcript, []app.Language, app
 
 func (p Provider) Answer(context.Context, app.Question, app.RecentContext, app.ModelRef) (app.Answer, error) {
 	return p.AnswerText, p.Err
+}
+
+func (p Provider) Translate(context.Context, string, []app.Language, app.ModelRef) (app.Translations, error) {
+	return p.Translations, p.Err
 }
 
 type ConfigStore struct {

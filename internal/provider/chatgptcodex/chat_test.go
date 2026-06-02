@@ -73,6 +73,36 @@ func TestChatAnswerBuildsRequestAndTrimsResponse(t *testing.T) {
 	}
 }
 
+func TestChatTranslateParsesMultilingualJSON(t *testing.T) {
+	fake := &fakeResponseCreator{response: Response{Text: `{"es":" hola ","en":"hello","de":"hallo","fr":"ignored"}`}}
+	chat := NewChat(fake)
+
+	translations, err := chat.Translate(context.Background(), "hello", app.SummaryLanguages(), app.ModelRef{Name: " codex-mini "})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if translations[app.LanguageSpanish] != "hola" || translations[app.LanguageEnglish] != "hello" || translations[app.LanguageGerman] != "hallo" {
+		t.Fatalf("translations = %+v", translations)
+	}
+	if len(fake.requests) != 1 {
+		t.Fatalf("requests = %d, want 1", len(fake.requests))
+	}
+	req := fake.requests[0]
+	if req.Model != "codex-mini" {
+		t.Fatalf("model = %q", req.Model)
+	}
+	if len(req.Messages) != 2 {
+		t.Fatalf("messages = %d, want 2", len(req.Messages))
+	}
+	if req.Messages[0].Role != "system" || !strings.Contains(req.Messages[0].Text, "compact JSON object") {
+		t.Fatalf("system message = %+v", req.Messages[0])
+	}
+	if req.Messages[1].Role != "user" || !strings.Contains(req.Messages[1].Text, "Languages: es, en, de") || !strings.Contains(req.Messages[1].Text, "hello") {
+		t.Fatalf("user message = %+v", req.Messages[1])
+	}
+}
+
 func TestChatErrorsAreSanitizedAndContextErrorsPreserved(t *testing.T) {
 	tests := []struct {
 		name    string
@@ -126,6 +156,31 @@ func TestChatSummarizeMalformedOrEmptyResponseReturnsSanitizedError(t *testing.T
 				t.Fatalf("error = %q", err.Error())
 			}
 			assertNoLeak(t, err.Error(), "secret transcript")
+		})
+	}
+}
+
+func TestChatTranslateMalformedOrEmptyResponseReturnsSanitizedError(t *testing.T) {
+	tests := []struct {
+		name string
+		text string
+	}{
+		{name: "malformed json", text: `{"es":"hola", secret text`},
+		{name: "empty text", text: "  "},
+		{name: "wrong json shape", text: `{"es":{"text":"secret text"}}`},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			chat := NewChat(&fakeResponseCreator{response: Response{Text: tt.text}})
+			_, err := chat.Translate(context.Background(), "secret text", app.SummaryLanguages(), app.ModelRef{Name: "codex-mini"})
+			if err == nil {
+				t.Fatal("expected error")
+			}
+			if !strings.Contains(err.Error(), "parse ChatGPT Codex translation response") {
+				t.Fatalf("error = %q", err.Error())
+			}
+			assertNoLeak(t, err.Error(), "secret text")
 		})
 	}
 }

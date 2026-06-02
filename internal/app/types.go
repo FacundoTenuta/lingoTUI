@@ -208,6 +208,7 @@ func SummaryLanguages() []Language {
 }
 
 type Summary map[Language]string
+type Translations map[Language]string
 type Question string
 type Answer string
 

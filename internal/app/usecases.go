@@ -33,15 +33,16 @@ type Service struct {
 }
 
 type Result struct {
-	Command   CommandKind
-	Message   string
-	Models    []ModelRef
-	Context   RecentContext
-	Answer    Answer
-	Help      []HelpEntry
-	Guidance  []string
-	Connected bool
-	Recording bool
+	Command      CommandKind
+	Message      string
+	Models       []ModelRef
+	Context      RecentContext
+	Answer       Answer
+	Translations Translations
+	Help         []HelpEntry
+	Guidance     []string
+	Connected    bool
+	Recording    bool
 }
 
 func NewService(deps Dependencies) *Service { return &Service{deps: deps} }
@@ -64,6 +65,8 @@ func (s *Service) HandleInput(ctx context.Context, input string) (Result, error)
 		return s.Stop(ctx)
 	case CommandAsk:
 		return s.Ask(ctx, Question(cmd.Question))
+	case CommandTranslate:
+		return s.Translate(ctx, cmd.Text)
 	case CommandClear:
 		return s.Clear(ctx)
 	case CommandHelp:
@@ -110,7 +113,7 @@ func (s *Service) Connect(ctx context.Context) (Result, error) {
 		return s.result(CommandConnect, ""), fmt.Errorf("%w: local_whisper.model_path is required before /connect", ErrNotConfigured)
 	}
 	s.connected = true
-	return s.result(CommandConnect, fmt.Sprintf("Runtime config is ready: transcription %s/%s; chat %s/%s. Provider calls happen only on /stop or /ask.", cfg.TranscriptionModel.Provider, cfg.TranscriptionModel.Name, cfg.ChatModel.Provider, cfg.ChatModel.Name)), nil
+	return s.result(CommandConnect, fmt.Sprintf("Runtime config is ready: transcription %s/%s; chat %s/%s. Provider calls happen only on /stop, /ask, or /translate.", cfg.TranscriptionModel.Provider, cfg.TranscriptionModel.Name, cfg.ChatModel.Provider, cfg.ChatModel.Name)), nil
 }
 
 func (s *Service) Models(ctx context.Context) (Result, error) {
@@ -190,7 +193,7 @@ func missingTranscriberGuidance(cfg Config) string {
 
 func missingChatGuidance(cfg Config) string {
 	if cfg.ChatModel.Provider == ProviderChatGPT || cfg.Provider == ProviderChatGPT {
-		return "ChatGPT/Codex chat is not configured; run lingotui login chatgpt before /ask or /stop"
+		return "ChatGPT/Codex chat is not configured; run lingotui login chatgpt before /ask, /stop, or /translate"
 	}
 	return "run lingotui login openai or configure auth.json fallback, then run /connect before processing audio"
 }
@@ -224,6 +227,31 @@ func (s *Service) Ask(ctx context.Context, question Question) (Result, error) {
 	result := s.result(CommandAsk, string(answer))
 	result.Answer = answer
 	result.Context = recent
+	return result, nil
+}
+
+func (s *Service) Translate(ctx context.Context, text string) (Result, error) {
+	text = strings.TrimSpace(text)
+	if text == "" {
+		return s.result(CommandTranslate, ""), ErrMissingCommandArgument
+	}
+	if s.deps.Chat == nil {
+		cfg, err := s.loadConfig(ctx)
+		if err != nil {
+			return s.result(CommandTranslate, ""), err
+		}
+		return s.result(CommandTranslate, ""), fmt.Errorf("%w: chat; %s", ErrNotConfigured, missingChatGuidance(cfg))
+	}
+	cfg, err := s.loadConfig(ctx)
+	if err != nil {
+		return s.result(CommandTranslate, ""), err
+	}
+	translations, err := s.deps.Chat.Translate(ctx, text, SummaryLanguages(), cfg.ChatModel)
+	if err != nil {
+		return s.result(CommandTranslate, ""), fmt.Errorf("translate text: %w", err)
+	}
+	result := s.result(CommandTranslate, "Translated text into ES/EN/DE.")
+	result.Translations = translations
 	return result, nil
 }
 
