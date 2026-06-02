@@ -210,9 +210,18 @@ func waitForCallback(t *testing.T, waiter *LocalCallbackWaiter, state string) <-
 func requestCallback(t *testing.T, rawURL string) callbackResponse {
 	t.Helper()
 	client := &http.Client{Timeout: time.Second}
-	response, err := client.Get(rawURL)
-	if err != nil {
-		t.Fatal(err)
+	deadline := time.Now().Add(time.Second)
+	var response *http.Response
+	var err error
+	for {
+		response, err = client.Get(rawURL)
+		if err == nil {
+			break
+		}
+		if time.Now().After(deadline) {
+			t.Fatal(err)
+		}
+		time.Sleep(5 * time.Millisecond)
 	}
 	defer response.Body.Close()
 	body, err := io.ReadAll(response.Body)
