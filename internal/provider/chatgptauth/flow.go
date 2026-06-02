@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"net/url"
 	"time"
 
 	"github.com/FacundoTenuta/lingoTUI/internal/app"
@@ -34,6 +35,7 @@ type Flow struct {
 	ClientID     string
 	AuthEndpoint string
 	Scopes       []string
+	ExtraParams  url.Values
 	Browser      Browser
 	Callback     CallbackWaiter
 	Exchanger    TokenExchanger
@@ -91,6 +93,7 @@ func (f Flow) Login(ctx context.Context, stdout io.Writer, store app.AuthCredent
 		scopes:        f.Scopes,
 		state:         state,
 		codeChallenge: challenge,
+		extraParams:   f.ExtraParams,
 	})
 	if err != nil {
 		return err

@@ -21,6 +21,11 @@ func TestLoginAuthURLIncludesOAuthAndPKCEParameters(t *testing.T) {
 	exchanger := &fakeTokenExchanger{credential: oauthCredential("access-token", "refresh-token")}
 	store := &recordingAuthStore{}
 	flow := testFlow(browser, callback, exchanger)
+	flow.ExtraParams = url.Values{
+		"codex_cli_simplified_flow":  {"true"},
+		"id_token_add_organizations": {"true"},
+		"originator":                 {"opencode"},
+	}
 
 	if err := flow.Login(context.Background(), nil, store); err != nil {
 		t.Fatal(err)
@@ -39,6 +44,9 @@ func TestLoginAuthURLIncludesOAuthAndPKCEParameters(t *testing.T) {
 	assertQuery(t, query, "scope", "openid profile offline_access")
 	assertQuery(t, query, "code_challenge_method", "S256")
 	assertQuery(t, query, "response_type", "code")
+	assertQuery(t, query, "codex_cli_simplified_flow", "true")
+	assertQuery(t, query, "id_token_add_organizations", "true")
+	assertQuery(t, query, "originator", "opencode")
 	if query.Get("state") == "" {
 		t.Fatal("state is empty")
 	}

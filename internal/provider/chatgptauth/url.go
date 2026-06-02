@@ -22,6 +22,12 @@ func authURL(endpoint string, params authURLParams) (string, error) {
 	values.Set("code_challenge", params.codeChallenge)
 	values.Set("code_challenge_method", "S256")
 	values.Set("response_type", "code")
+	for key, value := range params.extraParams {
+		if len(value) == 0 {
+			continue
+		}
+		values[key] = append([]string(nil), value...)
+	}
 	parsed.RawQuery = values.Encode()
 	return parsed.String(), nil
 }
@@ -32,4 +38,5 @@ type authURLParams struct {
 	scopes        []string
 	state         string
 	codeChallenge string
+	extraParams   url.Values
 }

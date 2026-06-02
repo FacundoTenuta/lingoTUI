@@ -8,6 +8,7 @@ import (
 	"reflect"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/FacundoTenuta/lingoTUI/internal/app"
 )
@@ -458,6 +459,84 @@ func TestLoginWithStoreChatGPTFlowErrorSavesNothingAndRedactsTokens(t *testing.T
 				t.Fatalf("output exposed token %q: %q", secret, output)
 			}
 		}
+	}
+}
+
+func TestDefaultChatGPTLoginFlowFromEnvDisabledReturnsPlaceholderWithoutSideEffects(t *testing.T) {
+	t.Setenv(experimentalChatGPTOAuthEnv, "")
+	store := &recordingAuthCredentialStore{}
+	stdin := &failingReader{err: errors.New("stdin should not be read")}
+	var stdout bytes.Buffer
+
+	err := loginWithStoreWithChatGPTFlowFactory(context.Background(), stdin, &stdout, store, "chatgpt", nil)
+	if !errors.Is(err, errChatGPTOAuthNotImplemented) {
+		t.Fatalf("error = %v, want not implemented", err)
+	}
+	if stdin.reads != 0 || store.credentialSaves != 0 || stdout.String() != "" {
+		t.Fatalf("side effects: stdin reads=%d saves=%d stdout=%q", stdin.reads, store.credentialSaves, stdout.String())
+	}
+}
+
+func TestLoginWithStoreChatGPTUsesExperimentalFactoryWhenEnabledWithoutReadingStdinOrExposingTokens(t *testing.T) {
+	t.Setenv(experimentalChatGPTOAuthEnv, "1")
+	store := &recordingAuthCredentialStore{}
+	stdin := &failingReader{err: errors.New("stdin should not be read")}
+	flow := &fakeChatGPTLoginFlow{
+		credential: app.Credential{
+			Provider: app.ProviderChatGPT,
+			Kind:     app.CredentialKindOAuth,
+			OAuth: app.OAuthCredential{
+				AccessToken:  app.Secret{Value: "access-token"},
+				RefreshToken: app.Secret{Value: "refresh-token"},
+			},
+		},
+	}
+	var factoryCalls int
+	var stdout bytes.Buffer
+
+	err := loginWithStoreWithChatGPTFlowFactory(context.Background(), stdin, &stdout, store, "chatgpt", func() (chatGPTLoginFlow, error) {
+		factoryCalls++
+		return flow, nil
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if factoryCalls != 1 || !flow.called {
+		t.Fatalf("factory calls=%d flow called=%v, want experimental flow path", factoryCalls, flow.called)
+	}
+	if stdin.reads != 0 {
+		t.Fatalf("stdin reads = %d, want 0", stdin.reads)
+	}
+	for _, secret := range []string{"access-token", "refresh-token"} {
+		if strings.Contains(stdout.String(), secret) {
+			t.Fatalf("stdout exposed token %q: %q", secret, stdout.String())
+		}
+	}
+}
+
+func TestExperimentalChatGPTLoginFlowUsesVerifiedOpencodeOAuthConstants(t *testing.T) {
+	flow := newExperimentalChatGPTLoginFlow(nil, nil, nil)
+
+	if flow.ClientID != chatGPTOAuthClientID {
+		t.Fatalf("client ID = %q, want verified opencode client ID", flow.ClientID)
+	}
+	if flow.AuthEndpoint != chatGPTOAuthEndpoint {
+		t.Fatalf("auth endpoint = %q, want %q", flow.AuthEndpoint, chatGPTOAuthEndpoint)
+	}
+	if !reflect.DeepEqual(flow.Scopes, []string{"openid", "profile", "email", "offline_access"}) {
+		t.Fatalf("scopes = %#v", flow.Scopes)
+	}
+	for key, want := range map[string]string{
+		"id_token_add_organizations": "true",
+		"codex_cli_simplified_flow":  "true",
+		"originator":                 "opencode",
+	} {
+		if got := flow.ExtraParams.Get(key); got != want {
+			t.Fatalf("extra param %s = %q, want %q", key, got, want)
+		}
+	}
+	if flow.Timeout != 5*time.Minute {
+		t.Fatalf("timeout = %s, want 5m", flow.Timeout)
 	}
 }
 
