@@ -73,6 +73,36 @@ maybe_install_whisper_cpp() {
   fi
 }
 
+maybe_install_ffmpeg() {
+  if command_exists ffmpeg; then
+    info "ffmpeg is already installed: $(command -v ffmpeg)"
+    return 0
+  fi
+
+  warn "ffmpeg was not found. It is optional for installation, but required for /record mic."
+  if ! command_exists brew; then
+    warn "Homebrew was not found. To use /record mic, install ffmpeg manually and make it available on PATH."
+    return 0
+  fi
+
+  if ! is_interactive; then
+    warn "Non-interactive shell detected; skipping optional ffmpeg install. Run: brew install ffmpeg"
+    return 0
+  fi
+
+  if prompt_yes_no "Install ffmpeg with Homebrew now?"; then
+    info "Installing ffmpeg"
+    brew install ffmpeg
+    if command_exists ffmpeg; then
+      info "ffmpeg installed: $(command -v ffmpeg)"
+    else
+      warn "ffmpeg finished installing, but ffmpeg was not found on PATH. Restart your terminal or check Homebrew's output."
+    fi
+  else
+    warn "Skipping ffmpeg install. You can install it later with: brew install ffmpeg"
+  fi
+}
+
 lingotui_config_dir() {
   if [ "$(uname -s 2>/dev/null || printf unknown)" = "Darwin" ]; then
     printf '%s\n' "$HOME/Library/Application Support/lingotui"
@@ -321,6 +351,7 @@ case ":$PATH:" in
 esac
 
 info "Installed: $binary"
+maybe_install_ffmpeg
 maybe_install_whisper_cpp
 maybe_configure_localwhisper_chatgpt
 info "Run: lingotui"

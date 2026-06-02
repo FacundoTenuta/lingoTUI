@@ -4,7 +4,7 @@ lingoTUI is a terminal-first language survival assistant. The current MVP opens 
 
 ## Quick path
 
-1. Install Go and `ffmpeg`.
+1. Install Go.
 2. Install the command with `./install.sh`, or use the manual commands below.
 3. Run `lingotui login openai` and paste your OpenAI API key when prompted.
 4. Run `lingotui`; the first screen shows setup status and waits for your command.
@@ -19,11 +19,11 @@ From a local checkout, run the installer. By default it installs the latest publ
 ./install.sh
 ```
 
-The installer runs `go install`, detects Go's binary directory, and adds it to your shell profile when it is missing from `PATH`. It also checks for `whisper-cli`; when it is missing and Homebrew is available in an interactive shell, the installer asks whether to install optional `whisper-cpp` support for local transcription. The default answer is no.
+The installer runs `go install`, detects Go's binary directory, and adds it to your shell profile when it is missing from `PATH`. It also checks for `ffmpeg` and `whisper-cli`. When either dependency is missing and Homebrew is available in an interactive shell, the installer asks whether to install optional `ffmpeg` microphone recording support and optional `whisper-cpp` local transcription support. The default answer is no for both prompts.
 
 When `whisper-cli` is available and the shell is interactive, the installer can also optionally complete the localwhisper transcription plus ChatGPT/Codex chat config. The default answer is no. If you opt in, it creates the lingoTUI config directory, downloads `ggml-base.bin` into `models/` when missing, backs up an existing `config.json` to a unique `config.json.bak.*` file, and writes a mixed-runtime config with OpenAI kept as the top-level compatibility provider. It does not store secrets; run `lingotui login chatgpt` separately afterward.
 
-Non-interactive runs never prompt, install `whisper-cpp`, download models, or rewrite config. They print concise manual guidance instead. If `whisper-cli` is still missing after the optional Homebrew step, the installer skips localwhisper + ChatGPT setup because local transcription needs `whisper-cli` on `PATH`.
+Non-interactive runs never prompt, install `ffmpeg` or `whisper-cpp`, download models, or rewrite config. They print concise manual guidance instead. If `whisper-cli` is still missing after the optional Homebrew step, the installer skips localwhisper + ChatGPT setup because local transcription needs `whisper-cli` on `PATH`.
 
 To install a specific version:
 
@@ -167,6 +167,12 @@ LINGOTUI_FFMPEG_MIC_DEVICE=0 go test ./internal/audio -run Integration
 
 Use `ffmpeg -f avfoundation -list_devices true -i ""` to inspect available macOS devices. The app writes captured audio to a temporary `.wav` file using PCM mono 16 kHz output and returns that path for processing; persistent audio storage is not enabled by default.
 
+`ffmpeg` is required only when using `/record mic`. The installer can optionally install it with Homebrew in an interactive shell, or you can install it manually:
+
+```sh
+brew install ffmpeg
+```
+
 ## OpenAI adapter
 
 Live provider tests are opt-in and never run during default `go test ./...` without credentials:
@@ -189,7 +195,7 @@ The default runtime is still OpenAI. The mixed localwhisper transcription plus C
 
 ### Installer-assisted setup
 
-Run `./install.sh` from an interactive shell. After installing lingoTUI and checking optional `whisper-cpp` support, the installer asks whether to configure localwhisper + ChatGPT/Codex now. The default answer is no.
+Run `./install.sh` from an interactive shell. After installing lingoTUI and checking optional `ffmpeg` and `whisper-cpp` support, the installer asks whether to configure localwhisper + ChatGPT/Codex now. The default answer is no.
 
 If you answer yes, the installer:
 
@@ -209,7 +215,7 @@ lingotui login chatgpt
 
 Quick path:
 
-1. Install `whisper-cli` outside lingoTUI and download a compatible local Whisper model file.
+1. Install `ffmpeg` for `/record mic`, install `whisper-cli` outside lingoTUI, and download a compatible local Whisper model file.
 2. Run `lingotui login chatgpt` to save the ChatGPT Plus/Pro OAuth credential.
 3. Edit `~/Library/Application Support/lingotui/config.json` manually.
 4. Run `lingotui`, then `/connect`, `/record mic`, and `/stop`.
