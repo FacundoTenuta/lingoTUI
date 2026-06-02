@@ -5,12 +5,14 @@ import (
 	"context"
 	"errors"
 	"io"
+	"net/url"
 	"reflect"
 	"strings"
 	"testing"
 	"time"
 
 	"github.com/FacundoTenuta/lingoTUI/internal/app"
+	"github.com/FacundoTenuta/lingoTUI/internal/provider/chatgptauth"
 )
 
 func TestRunCLILaunchesTUIWithoutArgs(t *testing.T) {
@@ -559,6 +561,12 @@ func TestChatGPTLoginFlowUsesVerifiedOpencodeOAuthConstants(t *testing.T) {
 	if flow.AuthEndpoint != chatGPTOAuthEndpoint {
 		t.Fatalf("auth endpoint = %q, want %q", flow.AuthEndpoint, chatGPTOAuthEndpoint)
 	}
+	if chatGPTOAuthCallbackAddress != "localhost:1455" {
+		t.Fatalf("callback address = %q, want opencode redirect address", chatGPTOAuthCallbackAddress)
+	}
+	if chatGPTOAuthCallbackPath != "/auth/callback" {
+		t.Fatalf("callback path = %q, want opencode redirect path", chatGPTOAuthCallbackPath)
+	}
 	if !reflect.DeepEqual(flow.Scopes, []string{"openid", "profile", "email", "offline_access"}) {
 		t.Fatalf("scopes = %#v", flow.Scopes)
 	}
@@ -573,6 +581,51 @@ func TestChatGPTLoginFlowUsesVerifiedOpencodeOAuthConstants(t *testing.T) {
 	}
 	if flow.Timeout != 5*time.Minute {
 		t.Fatalf("timeout = %s, want 5m", flow.Timeout)
+	}
+}
+
+func TestChatGPTLoginFlowUsesFixedOpencodeRedirectURI(t *testing.T) {
+	browser := &recordingChatGPTBrowser{}
+	redirectURL := "http://" + chatGPTOAuthCallbackAddress + chatGPTOAuthCallbackPath
+	callback := &recordingChatGPTCallbackWaiter{redirectURL: redirectURL}
+	exchanger := &recordingChatGPTTokenExchanger{
+		credential: app.OAuthCredential{RefreshToken: app.Secret{Value: "refresh-token"}},
+	}
+	store := &recordingAuthCredentialStore{}
+	flow := newChatGPTLoginFlow(browser, callback, exchanger)
+
+	if err := flow.Login(context.Background(), io.Discard, store); err != nil {
+		t.Fatal(err)
+	}
+	parsed, err := url.Parse(browser.openedURL)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := parsed.Query().Get("redirect_uri"); got != "http://localhost:1455/auth/callback" {
+		t.Fatalf("redirect_uri = %q, want fixed opencode redirect URI", got)
+	}
+	if exchanger.request.RedirectURL != "http://localhost:1455/auth/callback" {
+		t.Fatalf("exchange redirect URL = %q, want exact auth redirect URI", exchanger.request.RedirectURL)
+	}
+}
+
+func TestChatGPTLoginFactoryErrorPreservesActionableDetail(t *testing.T) {
+	store := &recordingAuthCredentialStore{}
+	var stdout bytes.Buffer
+
+	err := loginWithStoreWithChatGPTFlowFactory(context.Background(), strings.NewReader(""), &stdout, store, "chatgpt", func() (chatGPTLoginFlow, error) {
+		return nil, errors.New("listen for ChatGPT OAuth callback: address already in use")
+	})
+	if err == nil {
+		t.Fatal("expected error")
+	}
+	for _, want := range []string{"prepare ChatGPT OAuth login", "listen for ChatGPT OAuth callback", "address already in use"} {
+		if !strings.Contains(err.Error(), want) {
+			t.Fatalf("error missing %q: %v", want, err)
+		}
+	}
+	if stdout.String() != "" {
+		t.Fatalf("stdout = %q, want empty", stdout.String())
 	}
 }
 
@@ -668,6 +721,35 @@ func (f *fakeChatGPTLoginFlow) Login(ctx context.Context, _ io.Writer, store app
 		return f.err
 	}
 	return store.SaveCredential(ctx, f.credential)
+}
+
+type recordingChatGPTBrowser struct {
+	openedURL string
+}
+
+func (b *recordingChatGPTBrowser) Open(_ context.Context, rawURL string) error {
+	b.openedURL = rawURL
+	return nil
+}
+
+type recordingChatGPTCallbackWaiter struct {
+	redirectURL string
+}
+
+func (w *recordingChatGPTCallbackWaiter) RedirectURL() string { return w.redirectURL }
+
+func (w *recordingChatGPTCallbackWaiter) Wait(_ context.Context, state string) (chatgptauth.Callback, error) {
+	return chatgptauth.Callback{Code: "auth-code", State: state}, nil
+}
+
+type recordingChatGPTTokenExchanger struct {
+	request    chatgptauth.TokenRequest
+	credential app.OAuthCredential
+}
+
+func (e *recordingChatGPTTokenExchanger) Exchange(_ context.Context, request chatgptauth.TokenRequest) (app.OAuthCredential, error) {
+	e.request = request
+	return e.credential, nil
 }
 
 type failingReader struct {

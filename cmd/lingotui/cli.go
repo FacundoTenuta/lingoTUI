@@ -22,6 +22,8 @@ var errChatGPTOAuthNotImplemented = errors.New("ChatGPT Plus/Pro OAuth login flo
 const chatGPTOAuthClientID = "app_EMoamEEZ73f0CkXaXp7hrann"
 const chatGPTOAuthEndpoint = "https://auth.openai.com/oauth/authorize"
 const chatGPTTokenEndpoint = "https://auth.openai.com/oauth/token"
+const chatGPTOAuthCallbackAddress = "localhost:1455"
+const chatGPTOAuthCallbackPath = "/auth/callback"
 
 var version = "dev"
 var defaultChatGPTLoginFlowFactory chatGPTLoginFlowFactory = newDefaultChatGPTLoginFlow
@@ -159,7 +161,10 @@ func defaultLoginHandlerWithChatGPTFlowFactory(ctx context.Context, stdin io.Rea
 }
 
 func newDefaultChatGPTLoginFlow() (chatGPTLoginFlow, error) {
-	callback, err := chatgptauth.NewLocalCallbackWaiter()
+	callback, err := chatgptauth.NewLocalCallbackWaiterWithConfig(chatgptauth.LocalCallbackWaiterConfig{
+		Address: chatGPTOAuthCallbackAddress,
+		Path:    chatGPTOAuthCallbackPath,
+	})
 	if err != nil {
 		return nil, err
 	}
@@ -221,7 +226,7 @@ func loginWithStoreWithChatGPTFlowFactory(ctx context.Context, stdin io.Reader, 
 		}
 		flow, err := flowFactory()
 		if err != nil {
-			return fmt.Errorf("prepare ChatGPT OAuth login")
+			return fmt.Errorf("prepare ChatGPT OAuth login: %w", err)
 		}
 		return loginChatGPT(ctx, stdout, store, flow)
 	}

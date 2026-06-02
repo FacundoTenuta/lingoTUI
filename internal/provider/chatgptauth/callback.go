@@ -11,10 +11,17 @@ import (
 
 const callbackPath = "/callback"
 
+type LocalCallbackWaiterConfig struct {
+	Address string
+	Path    string
+}
+
 type LocalCallbackWaiter struct {
-	listener net.Listener
-	server   *http.Server
-	result   chan Callback
+	listener     net.Listener
+	server       *http.Server
+	result       chan Callback
+	redirectHost string
+	callbackPath string
 
 	mu            sync.RWMutex
 	expectedState string
@@ -27,29 +34,55 @@ type LocalCallbackWaiter struct {
 }
 
 func NewLocalCallbackWaiter() (*LocalCallbackWaiter, error) {
-	listener, err := net.Listen("tcp", "127.0.0.1:0")
+	return NewLocalCallbackWaiterWithConfig(LocalCallbackWaiterConfig{})
+}
+
+func NewLocalCallbackWaiterWithConfig(config LocalCallbackWaiterConfig) (*LocalCallbackWaiter, error) {
+	address := config.Address
+	if address == "" {
+		address = "127.0.0.1:0"
+	}
+	path := config.Path
+	if path == "" {
+		path = callbackPath
+	}
+	if path[0] != '/' {
+		return nil, fmt.Errorf("ChatGPT OAuth callback path must start with /")
+	}
+
+	listener, err := net.Listen("tcp", address)
 	if err != nil {
 		return nil, fmt.Errorf("listen for ChatGPT OAuth callback: %w", err)
 	}
-	return NewLocalCallbackWaiterWithListener(listener)
+	redirectHost := listener.Addr().String()
+	if _, port, err := net.SplitHostPort(address); err == nil && port != "0" {
+		redirectHost = address
+	}
+	return newLocalCallbackWaiter(listener, redirectHost, path)
 }
 
 func NewLocalCallbackWaiterWithListener(listener net.Listener) (*LocalCallbackWaiter, error) {
 	if listener == nil {
 		return nil, fmt.Errorf("ChatGPT OAuth callback listener is required")
 	}
+	return newLocalCallbackWaiter(listener, listener.Addr().String(), callbackPath)
+}
+
+func newLocalCallbackWaiter(listener net.Listener, redirectHost, path string) (*LocalCallbackWaiter, error) {
 	server := &http.Server{}
 	w := &LocalCallbackWaiter{
-		listener: listener,
-		server:   server,
-		result:   make(chan Callback, 1),
+		listener:     listener,
+		server:       server,
+		result:       make(chan Callback, 1),
+		redirectHost: redirectHost,
+		callbackPath: path,
 	}
 	server.Handler = http.HandlerFunc(w.handleCallback)
 	return w, nil
 }
 
 func (w *LocalCallbackWaiter) RedirectURL() string {
-	return "http://" + w.listener.Addr().String() + callbackPath
+	return "http://" + w.redirectHost + w.callbackPath
 }
 
 func (w *LocalCallbackWaiter) Wait(ctx context.Context, expectedState string) (Callback, error) {
@@ -114,7 +147,7 @@ func appendCloseError(errs []error, err error) []error {
 }
 
 func (w *LocalCallbackWaiter) handleCallback(rw http.ResponseWriter, req *http.Request) {
-	if req.URL.Path != callbackPath {
+	if req.URL.Path != w.callbackPath {
 		http.NotFound(rw, req)
 		return
 	}

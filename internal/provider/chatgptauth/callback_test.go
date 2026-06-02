@@ -171,6 +171,46 @@ func TestNewLocalCallbackWaiterBindsLoopbackByDefault(t *testing.T) {
 	}
 }
 
+func TestLocalCallbackWaiterWithConfigUsesConfiguredPathAndAddress(t *testing.T) {
+	listener, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	address := listener.Addr().String()
+	if err := listener.Close(); err != nil {
+		t.Fatal(err)
+	}
+
+	waiter, err := NewLocalCallbackWaiterWithConfig(LocalCallbackWaiterConfig{
+		Address: address,
+		Path:    "/auth/callback",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer waiter.Close()
+	if waiter.RedirectURL() != "http://"+address+"/auth/callback" {
+		t.Fatalf("redirect URL = %q, want configured address and path", waiter.RedirectURL())
+	}
+
+	callbackCh := waitForCallback(t, waiter, "state-value")
+	wrongPath := strings.Replace(waiter.RedirectURL(), "/auth/callback", callbackPath, 1)
+	response := requestCallback(t, wrongPath+"?code=wrong-code&state=state-value")
+	if response.status != http.StatusNotFound {
+		t.Fatalf("status = %d, want %d", response.status, http.StatusNotFound)
+	}
+	assertNoCallbackYet(t, callbackCh)
+
+	response = requestCallback(t, waiter.RedirectURL()+"?code=auth-code&state=state-value")
+	if response.status != http.StatusOK {
+		t.Fatalf("status = %d, want %d", response.status, http.StatusOK)
+	}
+	callback := receiveCallback(t, callbackCh)
+	if callback.Code != "auth-code" || callback.State != "state-value" {
+		t.Fatalf("callback = %#v, want configured callback path to complete", callback)
+	}
+}
+
 func TestLoginClosesCallbackWaiterWhenSupported(t *testing.T) {
 	callback := &closableFakeCallbackWaiter{fakeCallbackWaiter: fakeCallbackWaiter{redirectURL: "http://127.0.0.1:8787/callback", callback: Callback{Code: "auth-code"}}}
 	flow := testFlow(&recordingBrowser{}, callback, &fakeTokenExchanger{credential: oauthCredential("access-token", "refresh-token")})
