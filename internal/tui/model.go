@@ -22,6 +22,8 @@ type Model struct {
 	Status              statusState
 	StatusMessage       string
 	MenuIndex           int
+	width               int
+	height              int
 	inputMode           inputMode
 	connected           bool
 	recording           bool

@@ -7,20 +7,24 @@ import (
 )
 
 var (
-	_ app.Recorder        = (*Recorder)(nil)
-	_ app.ChunkRecorder   = (*ChunkRecorder)(nil)
-	_ app.Transcriber     = Provider{}
-	_ app.Chat            = Provider{}
-	_ app.ConfigStore     = (*ConfigStore)(nil)
-	_ app.CredentialStore = (*CredentialStore)(nil)
-	_ app.ContextStore    = (*ContextStore)(nil)
+	_ app.Recorder         = (*Recorder)(nil)
+	_ app.RecordingCleaner = (*Recorder)(nil)
+	_ app.ChunkRecorder    = (*ChunkRecorder)(nil)
+	_ app.Transcriber      = Provider{}
+	_ app.Chat             = Provider{}
+	_ app.ConfigStore      = (*ConfigStore)(nil)
+	_ app.CredentialStore  = (*CredentialStore)(nil)
+	_ app.ContextStore     = (*ContextStore)(nil)
 )
 
 type Recorder struct {
-	Started  app.AudioSource
-	File     app.AudioFile
-	StartErr error
-	StopErr  error
+	Started      app.AudioSource
+	File         app.AudioFile
+	StartErr     error
+	StopErr      error
+	CleanupCalls int
+	CleanedFile  app.AudioFile
+	CleanupErr   error
 }
 
 func (r *Recorder) Start(_ context.Context, source app.AudioSource) error {
@@ -29,6 +33,12 @@ func (r *Recorder) Start(_ context.Context, source app.AudioSource) error {
 }
 
 func (r *Recorder) Stop(context.Context) (app.AudioFile, error) { return r.File, r.StopErr }
+
+func (r *Recorder) Cleanup(_ context.Context, file app.AudioFile) error {
+	r.CleanupCalls++
+	r.CleanedFile = file
+	return r.CleanupErr
+}
 
 type ChunkRecorder struct {
 	Started           app.AudioSource

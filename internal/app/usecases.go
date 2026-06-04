@@ -303,7 +303,7 @@ func (s *Service) storeRealtimeContext() {
 	s.deps.Context.Replace(RecentContext{Transcript: Transcript{Text: strings.Join(transcriptParts, "\n")}, Summary: translations})
 }
 
-func (s *Service) Stop(ctx context.Context) (Result, error) {
+func (s *Service) Stop(ctx context.Context) (result Result, resultErr error) {
 	if !s.recording {
 		return s.result(CommandStop, ""), fmt.Errorf("%w: run /record mic before /stop", ErrNotRecording)
 	}
@@ -319,6 +319,12 @@ func (s *Service) Stop(ctx context.Context) (Result, error) {
 	if err != nil {
 		return s.result(CommandStop, ""), fmt.Errorf("stop recording: %w", err)
 	}
+	defer func() {
+		if err := s.cleanupRecording(ctx, file); err != nil && resultErr == nil {
+			result = s.result(CommandStop, "")
+			resultErr = fmt.Errorf("cleanup recording: %w", err)
+		}
+	}()
 	if s.deps.Transcriber == nil {
 		return s.result(CommandStop, ""), fmt.Errorf("%w: transcriber; %s", ErrNotConfigured, missingTranscriberGuidance(cfg))
 	}
@@ -338,9 +344,17 @@ func (s *Service) Stop(ctx context.Context) (Result, error) {
 	}
 	recent := RecentContext{Transcript: transcript, Summary: summary}
 	s.deps.Context.Replace(recent)
-	result := s.result(CommandStop, "Processed recording and updated ES/EN/DE context.")
+	result = s.result(CommandStop, "Processed recording and updated ES/EN/DE context.")
 	result.Context = recent
 	return result, nil
+}
+
+func (s *Service) cleanupRecording(ctx context.Context, file AudioFile) error {
+	cleaner, ok := s.deps.Recorder.(RecordingCleaner)
+	if !ok {
+		return nil
+	}
+	return cleaner.Cleanup(ctx, file)
 }
 
 func missingTranscriberGuidance(cfg Config) string {

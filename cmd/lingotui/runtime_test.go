@@ -18,6 +18,7 @@ func TestBuildRuntimeStartsWithOnboardingAndNoExternalSideEffects(t *testing.T) 
 	chunkRecorder := &countingChunkRecorder{}
 	provider := &countingProvider{}
 	audioChecker := &countingAudioChecker{status: setup.ItemStatus{Name: "Microphone", State: setup.StateUnknown, Message: "grant access before /record mic"}}
+	codexChecker := &countingCodexChecker{status: setup.ItemStatus{Name: "Codex CLI", State: setup.StateMissing, Message: "optional alternative missing; install Codex CLI"}}
 
 	store, err := credentials.NewFileStore(baseDir)
 	if err != nil {
@@ -37,6 +38,7 @@ func TestBuildRuntimeStartsWithOnboardingAndNoExternalSideEffects(t *testing.T) 
 		newRecorder:      func() app.Recorder { return recorder },
 		newChunkRecorder: func() app.ChunkRecorder { return chunkRecorder },
 		audioChecker:     audioChecker,
+		codexChecker:     codexChecker,
 		credentialStore:  store,
 	})
 	if err != nil {
@@ -44,7 +46,7 @@ func TestBuildRuntimeStartsWithOnboardingAndNoExternalSideEffects(t *testing.T) 
 	}
 
 	view := model.View()
-	for _, want := range []string{"Ready. Choose an action", "Setup status", "OpenAI credentials", "[redacted]", "Microphone", "/record mic"} {
+	for _, want := range []string{"Ready. Choose an action", "Setup status", "OpenAI credentials", "[redacted]", "Codex CLI", "optional alternative missing", "Microphone", "/record mic"} {
 		if !strings.Contains(view, want) {
 			t.Fatalf("view missing %q:\n%s", want, view)
 		}
@@ -56,6 +58,9 @@ func TestBuildRuntimeStartsWithOnboardingAndNoExternalSideEffects(t *testing.T) 
 	}
 	if audioChecker.checks != 1 {
 		t.Fatalf("audio checks = %d, want 1 setup-only status check", audioChecker.checks)
+	}
+	if codexChecker.checks != 1 {
+		t.Fatalf("codex checks = %d, want 1 setup-only status check", codexChecker.checks)
 	}
 	if recorder.starts != 0 || recorder.stops != 0 || provider.transcribes != 0 || provider.summarizes != 0 || provider.answers != 0 || provider.translates != 0 {
 		t.Fatalf("startup side effects: recorder=%+v provider=%+v", recorder, provider)
@@ -498,6 +503,11 @@ type countingAudioChecker struct {
 	checks int
 }
 
+type countingCodexChecker struct {
+	status setup.ItemStatus
+	checks int
+}
+
 type missingRuntimeCredentialStore struct{}
 
 func (s *missingRuntimeCredentialStore) Save(context.Context, app.ProviderID, app.Secret) error {
@@ -543,6 +553,11 @@ func (s *countingRuntimeCredentialStore) DeleteCredential(context.Context, app.P
 }
 
 func (c *countingAudioChecker) Microphone(context.Context) setup.ItemStatus {
+	c.checks++
+	return c.status
+}
+
+func (c *countingCodexChecker) CodexCLI(context.Context) setup.ItemStatus {
 	c.checks++
 	return c.status
 }

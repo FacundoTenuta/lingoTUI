@@ -148,6 +148,13 @@ func (r *FFmpegRecorder) Stop(context.Context) (app.AudioFile, error) {
 	return app.AudioFile{Path: filePath}, nil
 }
 
+func (r *FFmpegRecorder) Cleanup(_ context.Context, file app.AudioFile) error {
+	if strings.TrimSpace(file.Path) == "" {
+		return nil
+	}
+	return os.Remove(file.Path)
+}
+
 func ffmpegArgs(outputPath, inputDevice string) []string {
 	input := strings.TrimSpace(inputDevice)
 	if input == "" {

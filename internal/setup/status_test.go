@@ -220,6 +220,52 @@ func TestServiceStatusReportsChatGPTTypedStoreUnsupportedWithoutOldLoad(t *testi
 	}
 }
 
+func TestServiceStatusReportsCodexCLIAsOptionalAlternative(t *testing.T) {
+	tests := []struct {
+		name      string
+		codex     ItemStatus
+		wantReady bool
+		want      []string
+	}{
+		{
+			name:      "installed codex cli is visible separately",
+			codex:     ItemStatus{State: StateReady, Path: "/usr/local/bin/codex", Message: "installed; authentication/session state is not verified by lingoTUI yet"},
+			wantReady: true,
+			want:      []string{"OpenAI credentials", "Codex CLI", "ready", "/usr/local/bin/codex", "authentication/session state is not verified"},
+		},
+		{
+			name:      "missing codex cli does not block direct openai setup",
+			codex:     ItemStatus{State: StateMissing, Message: "optional alternative missing; install Codex CLI"},
+			wantReady: true,
+			want:      []string{"OpenAI credentials", "Codex CLI", "missing", "optional alternative missing", "Setup ready"},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			service := Service{
+				Credentials:  &fakeCredentialStore{secret: app.Secret{Value: "sk-openai"}},
+				AudioChecker: &fakeAudioChecker{status: ItemStatus{Name: "Microphone", State: StateReady, Message: "ready"}},
+				CodexChecker: &fakeCodexChecker{status: tt.codex},
+			}
+
+			status := service.Status(context.Background())
+			if status.Ready != tt.wantReady {
+				t.Fatalf("ready = %v, want %v: %+v", status.Ready, tt.wantReady, status)
+			}
+			rendered := strings.Join(RenderLines(status), "\n")
+			for _, want := range tt.want {
+				if !strings.Contains(rendered, want) {
+					t.Fatalf("rendered status missing %q:\n%s", want, rendered)
+				}
+			}
+			if strings.Contains(rendered, "sk-openai") {
+				t.Fatalf("rendered status exposed OpenAI secret:\n%s", rendered)
+			}
+		})
+	}
+}
+
 func TestServiceStatusReportsMissingLocalWhisperModelPathAsAttention(t *testing.T) {
 	credentials := &fakeCredentialStore{secret: app.Secret{Value: "sk-openai"}}
 	audio := &fakeAudioChecker{status: ItemStatus{Name: "Microphone", State: StateReady, Message: "ready"}}
@@ -368,6 +414,16 @@ type fakeAudioChecker struct {
 }
 
 func (c *fakeAudioChecker) Microphone(context.Context) ItemStatus {
+	c.checks++
+	return c.status
+}
+
+type fakeCodexChecker struct {
+	status ItemStatus
+	checks int
+}
+
+func (c *fakeCodexChecker) CodexCLI(context.Context) ItemStatus {
 	c.checks++
 	return c.status
 }

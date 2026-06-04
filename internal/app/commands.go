@@ -140,6 +140,7 @@ func DefaultSetupGuidance() []string {
 	return []string{
 		"OpenAI: run lingotui login openai to save your API key to macOS Keychain, or configure auth.json fallback for development, then run /connect. Secret values are never printed.",
 		"ChatGPT Plus/Pro: run lingotui login chatgpt to complete browser OAuth login. OpenAI remains the default; set chat_model.provider to chatgpt manually for experimental ChatGPT/Codex chat. Provider calls happen only on /stop, /ask, /translate, or realtime chunks.",
+		"Codex CLI: optional alternative status checks only whether the codex binary is installed; lingoTUI does not use Codex CLI for chat yet or infer authentication state.",
 		"LocalWhisper: install whisper-cli externally and configure local_whisper.binary_path and local_whisper.model_path for local transcription. Setup does not verify model files or execute whisper until /stop.",
 		"Microphone: grant macOS microphone permission before /record mic. Recording starts only after that command.",
 	}

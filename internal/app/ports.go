@@ -7,6 +7,10 @@ type Recorder interface {
 	Stop(context.Context) (AudioFile, error)
 }
 
+type RecordingCleaner interface {
+	Cleanup(context.Context, AudioFile) error
+}
+
 type ChunkRecorder interface {
 	Start(context.Context, AudioSource) error
 	NextChunk(context.Context) (AudioFile, bool, error)

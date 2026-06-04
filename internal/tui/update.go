@@ -12,6 +12,10 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	switch msg := msg.(type) {
 	case SubmitMsg:
 		return m.submit(msg.Input)
+	case tea.WindowSizeMsg:
+		m.width = msg.Width
+		m.height = msg.Height
+		return m, nil
 	case RealtimeTickMsg:
 		if !m.realtime || m.Status == statusLoading {
 			if m.realtime && m.Status == statusLoading {
@@ -71,7 +75,11 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				return m, nil
 			}
 			if len(m.Input) > 0 {
-				m.Input = m.Input[:len(m.Input)-1]
+				lastRuneIndex := 0
+				for index := range m.Input {
+					lastRuneIndex = index
+				}
+				m.Input = m.Input[:lastRuneIndex]
 			}
 		default:
 			if m.Status == statusLoading {

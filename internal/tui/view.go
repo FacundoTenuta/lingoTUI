@@ -84,7 +84,7 @@ func (m Model) View() string {
 		b.WriteString(sectionTitle("Footer"))
 		b.WriteByte('\n')
 		b.WriteString(shortcutStyle.Render(footerShortcuts))
-		return b.String()
+		return m.fillTerminalHeight(b.String())
 	}
 	b.WriteString(sectionTitle("Menu/Input"))
 	b.WriteByte('\n')
@@ -100,7 +100,18 @@ func (m Model) View() string {
 	b.WriteString(sectionTitle("Footer"))
 	b.WriteByte('\n')
 	b.WriteString(shortcutStyle.Render(footerShortcuts))
-	return b.String()
+	return m.fillTerminalHeight(b.String())
+}
+
+func (m Model) fillTerminalHeight(view string) string {
+	if m.height <= 0 {
+		return view
+	}
+	lineCount := strings.Count(view, "\n") + 1
+	if lineCount >= m.height {
+		return view
+	}
+	return view + strings.Repeat("\n", m.height-lineCount)
 }
 
 func sectionTitle(label string) string {

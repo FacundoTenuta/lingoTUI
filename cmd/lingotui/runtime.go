@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
 
@@ -33,6 +34,7 @@ type runtimeOptions struct {
 	newRecorder                func() app.Recorder
 	newChunkRecorder           func() app.ChunkRecorder
 	audioChecker               setup.AudioPermissionChecker
+	codexChecker               setup.CodexCLIChecker
 	credentialStore            app.CredentialStore
 	credentialPath             setup.PathProvider
 }
@@ -69,6 +71,7 @@ func buildRuntimeWithOptions(baseDir string, options runtimeOptions) (tui.Model,
 		CredentialPath: credentialPath,
 		Credentials:    credentialStore,
 		AudioChecker:   options.audioChecker,
+		CodexChecker:   options.codexChecker,
 		Config:         cfg,
 		Provider:       cfg.Provider,
 	}
@@ -172,6 +175,7 @@ func defaultRuntimeOptions() runtimeOptions {
 			)
 		},
 		audioChecker: audio.NewMicrophonePermissionChecker(),
+		codexChecker: codexCLIPathChecker{},
 	}
 }
 
@@ -202,6 +206,9 @@ func normalizeRuntimeOptions(options runtimeOptions) runtimeOptions {
 	if options.audioChecker == nil {
 		options.audioChecker = defaults.audioChecker
 	}
+	if options.codexChecker == nil {
+		options.codexChecker = defaults.codexChecker
+	}
 	if options.credentialPath == nil {
 		if path, ok := options.credentialStore.(setup.PathProvider); ok {
 			options.credentialPath = path
@@ -212,4 +219,23 @@ func normalizeRuntimeOptions(options runtimeOptions) runtimeOptions {
 
 func usesProvider(cfg app.Config, provider app.ProviderID) bool {
 	return cfg.TranscriptionModel.Provider == provider || cfg.ChatModel.Provider == provider
+}
+
+type codexCLIPathChecker struct{}
+
+func (codexCLIPathChecker) CodexCLI(context.Context) setup.ItemStatus {
+	path, err := exec.LookPath("codex")
+	if err != nil {
+		return setup.ItemStatus{
+			Name:    "Codex CLI",
+			State:   setup.StateMissing,
+			Message: "optional alternative missing; install Codex CLI and authenticate with Codex CLI before using this future path",
+		}
+	}
+	return setup.ItemStatus{
+		Name:    "Codex CLI",
+		Path:    path,
+		State:   setup.StateReady,
+		Message: "installed; authentication/session state is not verified by lingoTUI yet",
+	}
 }

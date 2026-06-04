@@ -5,6 +5,7 @@ import (
 	"errors"
 	"strings"
 	"testing"
+	"unicode/utf8"
 
 	"github.com/FacundoTenuta/lingoTUI/internal/app"
 	memory "github.com/FacundoTenuta/lingoTUI/internal/context"
@@ -117,6 +118,37 @@ func TestModelUpdateMenuNavigationDoesNotCallApp(t *testing.T) {
 	model = updateModel(t, model, tea.KeyMsg{Type: tea.KeyUp})
 	if model.MenuIndex != 0 || model.Input != "" || len(fake.inputs) != 0 {
 		t.Fatalf("after up: index=%d input=%q calls=%v", model.MenuIndex, model.Input, fake.inputs)
+	}
+}
+
+func TestModelUpdateStoresTerminalSize(t *testing.T) {
+	model := updateModel(t, NewModel(&fakeApp{}), tea.WindowSizeMsg{Width: 120, Height: 40})
+
+	if model.width != 120 || model.height != 40 {
+		t.Fatalf("terminal size = %dx%d, want 120x40", model.width, model.height)
+	}
+}
+
+func TestViewFillsKnownTerminalHeight(t *testing.T) {
+	model := updateModel(t, NewModel(&fakeApp{}), tea.WindowSizeMsg{Width: 80, Height: 32})
+	view := model.View()
+
+	if got := strings.Count(view, "\n") + 1; got != 32 {
+		t.Fatalf("rendered lines = %d, want 32:\n%s", got, view)
+	}
+}
+
+func TestModelBackspaceRemovesLastRune(t *testing.T) {
+	model := NewModel(&fakeApp{})
+	model = updateModel(t, model, tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("café")})
+
+	model = updateModel(t, model, tea.KeyMsg{Type: tea.KeyBackspace})
+
+	if model.Input != "caf" {
+		t.Fatalf("input = %q, want caf", model.Input)
+	}
+	if !utf8.ValidString(model.Input) {
+		t.Fatalf("input is not valid UTF-8: %q", model.Input)
 	}
 }
 

@@ -20,8 +20,12 @@ func defaultTUILauncher() error {
 	if err != nil {
 		return fmt.Errorf("lingotui startup: %w", err)
 	}
-	if _, err := tea.NewProgram(model).Run(); err != nil {
+	if _, err := tea.NewProgram(model, defaultTUIProgramOptions()...).Run(); err != nil {
 		return fmt.Errorf("lingotui tui: %w", err)
 	}
 	return nil
+}
+
+func defaultTUIProgramOptions() []tea.ProgramOption {
+	return []tea.ProgramOption{tea.WithAltScreen()}
 }

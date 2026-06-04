@@ -295,6 +295,57 @@ func TestServiceRecordStopSummarizeAskAndClear(t *testing.T) {
 	}
 }
 
+func TestServiceStopCleansTemporaryRecordingAfterProcessing(t *testing.T) {
+	ctx := context.Background()
+	recorder := &testutil.Recorder{File: AudioFile{Path: "meeting.wav"}}
+	provider := &recordingProvider{
+		transcript: Transcript{Text: "hola mundo"},
+		summary: Summary{
+			LanguageSpanish: "saludo",
+			LanguageEnglish: "greeting",
+			LanguageGerman:  "begrüßung",
+		},
+	}
+	service := NewService(Dependencies{
+		Recorder:    recorder,
+		Transcriber: provider,
+		Chat:        provider,
+		Context:     &testutil.ContextStore{},
+	})
+
+	if _, err := service.Record(ctx, AudioSourceMic); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := service.Stop(ctx); err != nil {
+		t.Fatal(err)
+	}
+
+	if recorder.CleanupCalls != 1 || recorder.CleanedFile.Path != "meeting.wav" {
+		t.Fatalf("cleanup calls=%d file=%+v", recorder.CleanupCalls, recorder.CleanedFile)
+	}
+}
+
+func TestServiceStopCleansTemporaryRecordingAfterTranscribeError(t *testing.T) {
+	recorder := &testutil.Recorder{File: AudioFile{Path: "meeting.wav"}}
+	service := NewService(Dependencies{
+		Recorder:    recorder,
+		Transcriber: testutil.Provider{Err: errors.New("provider unavailable")},
+		Chat:        testutil.Provider{},
+		Context:     &testutil.ContextStore{},
+	})
+
+	if _, err := service.Record(context.Background(), AudioSourceMic); err != nil {
+		t.Fatal(err)
+	}
+	_, err := service.Stop(context.Background())
+	if err == nil || !strings.Contains(err.Error(), "transcribe audio") {
+		t.Fatalf("error = %v, want transcribe audio", err)
+	}
+	if recorder.CleanupCalls != 1 || recorder.CleanedFile.Path != "meeting.wav" {
+		t.Fatalf("cleanup calls=%d file=%+v", recorder.CleanupCalls, recorder.CleanedFile)
+	}
+}
+
 func TestServiceTranslateUsesChatModelWithoutRecentContext(t *testing.T) {
 	provider := &recordingProvider{translations: Translations{
 		LanguageSpanish: "hola",

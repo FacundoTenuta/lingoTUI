@@ -18,11 +18,12 @@ const (
 )
 
 type ItemStatus struct {
-	Name    string
-	Path    string
-	Message string
-	State   State
-	Secret  bool
+	Name     string
+	Path     string
+	Message  string
+	State    State
+	Secret   bool
+	Optional bool
 }
 
 type Status struct {
@@ -42,11 +43,16 @@ type AudioPermissionChecker interface {
 	Microphone(context.Context) ItemStatus
 }
 
+type CodexCLIChecker interface {
+	CodexCLI(context.Context) ItemStatus
+}
+
 type Service struct {
 	ConfigPath     PathProvider
 	CredentialPath PathProvider
 	Credentials    CredentialStore
 	AudioChecker   AudioPermissionChecker
+	CodexChecker   CodexCLIChecker
 	Config         app.Config
 	Provider       app.ProviderID
 }
@@ -62,13 +68,14 @@ func (s Service) Status(ctx context.Context) Status {
 	for _, provider := range credentialProviders(cfg) {
 		items = append(items, s.credentialStatus(ctx, provider))
 	}
+	items = append(items, s.codexCLIStatus(ctx))
 	items = append(items, s.microphoneStatus(ctx))
 	if cfg.TranscriptionModel.Provider == app.ProviderLocalWhisper {
 		items = append(items, localWhisperStatus(cfg.LocalWhisper))
 	}
 	ready := true
 	for _, item := range items {
-		if item.State != StateReady {
+		if !item.Optional && item.State != StateReady {
 			ready = false
 			break
 		}
@@ -193,6 +200,26 @@ func credentialProviders(cfg app.Config) []app.ProviderID {
 
 func unsupportedRuntime(cfg app.Config) bool {
 	return app.UnsupportedRuntimeReason(cfg) != ""
+}
+
+func (s Service) codexCLIStatus(ctx context.Context) ItemStatus {
+	if s.CodexChecker == nil {
+		return ItemStatus{
+			Name:     "Codex CLI",
+			State:    StateUnknown,
+			Message:  "optional alternative not checked; install codex and authenticate with Codex CLI when this path is enabled",
+			Optional: true,
+		}
+	}
+	item := s.CodexChecker.CodexCLI(ctx)
+	if strings.TrimSpace(item.Name) == "" {
+		item.Name = "Codex CLI"
+	}
+	if item.State == "" {
+		item.State = StateUnknown
+	}
+	item.Optional = true
+	return item
 }
 
 func (s Service) microphoneStatus(ctx context.Context) ItemStatus {
