@@ -316,6 +316,30 @@ append_path_to_profile() {
   info "Added Go bin directory to $profile"
 }
 
+print_lingotui_launch_guidance() {
+  binary="$1"
+  go_bin="$2"
+  profile="$3"
+
+  if command_exists lingotui; then
+    info "Run: lingotui"
+    return 0
+  fi
+
+  warn "lingotui is installed, but this shell session cannot find it on PATH yet."
+  warn "Run it now with: $binary"
+
+  if [ -n "$profile" ]; then
+    if [ "$(basename "${SHELL:-}")" = "fish" ]; then
+      warn "Or restart your terminal / run: source \"$profile\""
+      warn "For this session, run: fish_add_path $(shell_quote "$go_bin")"
+    else
+      warn "Or restart your terminal / run: . \"$profile\""
+      warn "For this session, run: export PATH=$(shell_quote "$go_bin"):\$PATH"
+    fi
+  fi
+}
+
 if ! command_exists go; then
   fail "Go is required. Install it from https://go.dev/dl/ and rerun this script."
 fi
@@ -334,6 +358,7 @@ if [ ! -x "$binary" ]; then
   fail "Installation finished, but $binary was not found or is not executable."
 fi
 
+profile=""
 case ":$PATH:" in
   *":$go_bin:"*)
     info "lingotui is installed and available on PATH"
@@ -354,4 +379,4 @@ info "Installed: $binary"
 maybe_install_ffmpeg
 maybe_install_whisper_cpp
 maybe_configure_localwhisper_chatgpt
-info "Run: lingotui"
+print_lingotui_launch_guidance "$binary" "$go_bin" "$profile"

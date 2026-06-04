@@ -7,6 +7,74 @@ package credentials
 #include <stdlib.h>
 #include <Security/Security.h>
 #include <CoreFoundation/CoreFoundation.h>
+
+#pragma clang diagnostic push
+#pragma clang diagnostic ignored "-Wdeprecated-declarations"
+
+static OSStatus lingotuiSecKeychainAddGenericPassword(
+	UInt32 serviceNameLength,
+	const char *serviceName,
+	UInt32 accountNameLength,
+	const char *accountName,
+	UInt32 passwordLength,
+	const void *passwordData
+) {
+	return SecKeychainAddGenericPassword(
+		NULL,
+		serviceNameLength,
+		serviceName,
+		accountNameLength,
+		accountName,
+		passwordLength,
+		passwordData,
+		NULL
+	);
+}
+
+static OSStatus lingotuiSecKeychainFindGenericPassword(
+	UInt32 serviceNameLength,
+	const char *serviceName,
+	UInt32 accountNameLength,
+	const char *accountName,
+	UInt32 *passwordLength,
+	void **passwordData,
+	SecKeychainItemRef *itemRef
+) {
+	return SecKeychainFindGenericPassword(
+		NULL,
+		serviceNameLength,
+		serviceName,
+		accountNameLength,
+		accountName,
+		passwordLength,
+		passwordData,
+		itemRef
+	);
+}
+
+static OSStatus lingotuiSecKeychainItemDelete(SecKeychainItemRef itemRef) {
+	return SecKeychainItemDelete(itemRef);
+}
+
+static void lingotuiSecKeychainItemFreeContent(void *data) {
+	SecKeychainItemFreeContent(NULL, data);
+}
+
+static OSStatus lingotuiSecKeychainItemModifyAttributesAndData(
+	SecKeychainItemRef itemRef,
+	UInt32 length,
+	const void *data
+) {
+	return SecKeychainItemModifyAttributesAndData(itemRef, NULL, length, data);
+}
+
+#pragma clang diagnostic pop
+
+static void lingotuiCFReleaseKeychainItem(SecKeychainItemRef itemRef) {
+	if (itemRef != NULL) {
+		CFRelease(itemRef);
+	}
+}
 */
 import "C"
 
@@ -34,31 +102,27 @@ func (darwinKeychainBackend) Save(ctx context.Context, service, account, secret 
 	secretBytes := []byte(secret)
 
 	var item C.SecKeychainItemRef
-	status := C.SecKeychainFindGenericPassword(
-		C.CFTypeRef(unsafe.Pointer(nil)),
+	status := C.lingotuiSecKeychainFindGenericPassword(
 		C.UInt32(len(serviceBytes)), charPtr(serviceBytes),
 		C.UInt32(len(accountBytes)), charPtr(accountBytes),
 		nil, nil,
 		&item,
 	)
 	if status == errSecItemNotFoundStatus {
-		status = C.SecKeychainAddGenericPassword(
-			C.SecKeychainRef(unsafe.Pointer(nil)),
+		status = C.lingotuiSecKeychainAddGenericPassword(
 			C.UInt32(len(serviceBytes)), charPtr(serviceBytes),
 			C.UInt32(len(accountBytes)), charPtr(accountBytes),
 			C.UInt32(len(secretBytes)), dataPtr(secretBytes),
-			nil,
 		)
 		return mapOSStatus(status)
 	}
 	if status != 0 {
 		return mapOSStatus(status)
 	}
-	defer C.CFRelease(C.CFTypeRef(unsafe.Pointer(item)))
+	defer C.lingotuiCFReleaseKeychainItem(item)
 
-	status = C.SecKeychainItemModifyAttributesAndData(
+	status = C.lingotuiSecKeychainItemModifyAttributesAndData(
 		item,
-		nil,
 		C.UInt32(len(secretBytes)), dataPtr(secretBytes),
 	)
 	return mapOSStatus(status)
@@ -74,8 +138,7 @@ func (darwinKeychainBackend) Load(ctx context.Context, service, account string) 
 	var passwordLength C.UInt32
 	var passwordData unsafe.Pointer
 	var item C.SecKeychainItemRef
-	status := C.SecKeychainFindGenericPassword(
-		C.CFTypeRef(unsafe.Pointer(nil)),
+	status := C.lingotuiSecKeychainFindGenericPassword(
 		C.UInt32(len(serviceBytes)), charPtr(serviceBytes),
 		C.UInt32(len(accountBytes)), charPtr(accountBytes),
 		&passwordLength, &passwordData,
@@ -84,8 +147,8 @@ func (darwinKeychainBackend) Load(ctx context.Context, service, account string) 
 	if status != 0 {
 		return "", mapOSStatus(status)
 	}
-	defer C.SecKeychainItemFreeContent(nil, passwordData)
-	defer C.CFRelease(C.CFTypeRef(unsafe.Pointer(item)))
+	defer C.lingotuiSecKeychainItemFreeContent(passwordData)
+	defer C.lingotuiCFReleaseKeychainItem(item)
 
 	return string(C.GoBytes(passwordData, C.int(passwordLength))), nil
 }
@@ -98,8 +161,7 @@ func (darwinKeychainBackend) Delete(ctx context.Context, service, account string
 	accountBytes := []byte(account)
 
 	var item C.SecKeychainItemRef
-	status := C.SecKeychainFindGenericPassword(
-		C.CFTypeRef(unsafe.Pointer(nil)),
+	status := C.lingotuiSecKeychainFindGenericPassword(
 		C.UInt32(len(serviceBytes)), charPtr(serviceBytes),
 		C.UInt32(len(accountBytes)), charPtr(accountBytes),
 		nil, nil,
@@ -108,9 +170,9 @@ func (darwinKeychainBackend) Delete(ctx context.Context, service, account string
 	if status != 0 {
 		return mapOSStatus(status)
 	}
-	defer C.CFRelease(C.CFTypeRef(unsafe.Pointer(item)))
+	defer C.lingotuiCFReleaseKeychainItem(item)
 
-	return mapOSStatus(C.SecKeychainItemDelete(item))
+	return mapOSStatus(C.lingotuiSecKeychainItemDelete(item))
 }
 
 func charPtr(bytes []byte) *C.char {

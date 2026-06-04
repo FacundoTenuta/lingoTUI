@@ -28,7 +28,7 @@ From a local checkout, run the installer. By default it installs the latest publ
 ./install.sh
 ```
 
-The installer runs `go install`, detects Go's binary directory, and adds it to your shell profile when it is missing from `PATH`. It also checks for `ffmpeg` and `whisper-cli`. When either dependency is missing and Homebrew is available in an interactive shell, the installer asks whether to install optional `ffmpeg` microphone recording support and optional `whisper-cpp` local transcription support. The default answer is no for both prompts.
+The installer runs `go install`, detects Go's binary directory, and adds it to your shell profile when it is missing from `PATH`. A shell script cannot update the already-running parent shell, so when PATH was missing it prints the exact command to run for the current session, plus the direct binary path. It also checks for `ffmpeg` and `whisper-cli`. When either dependency is missing and Homebrew is available in an interactive shell, the installer asks whether to install optional `ffmpeg` microphone recording support and optional `whisper-cpp` local transcription support. The default answer is no for both prompts.
 
 When `whisper-cli` is available and the shell is interactive, the installer can also optionally complete the localwhisper transcription plus ChatGPT/Codex chat config. The default answer is no. If you opt in, it creates the lingoTUI config directory, downloads `ggml-base.bin` into `models/` when missing, backs up an existing `config.json` to a unique `config.json.bak.*` file, and writes a mixed-runtime config with OpenAI kept as the top-level compatibility provider. It does not store secrets; run `lingotui login chatgpt` separately afterward.
 
@@ -56,6 +56,12 @@ Go writes installed binaries to `$GOBIN` when set, otherwise to `$GOPATH/bin` (u
 
 ```sh
 export PATH="$(go env GOPATH)/bin:$PATH"
+```
+
+You can also run the installed binary directly:
+
+```sh
+"$(go env GOPATH)/bin/lingotui" version
 ```
 
 After installing, launch the TUI:

@@ -10,6 +10,7 @@ var (
 	ErrMissingCommandArgument = errors.New("missing command argument")
 	ErrUnsupportedAudioSource = errors.New("audio source is not available in this slice")
 	ErrUnsupportedRealtime    = errors.New("unsupported realtime command")
+	ErrUnsupportedConnection  = errors.New("unsupported connection option; supported options: /connect, /connect openai, /connect codex")
 )
 
 type CommandKind string
@@ -35,6 +36,14 @@ const (
 	RealtimeActionStop  RealtimeAction = "stop"
 )
 
+type ConnectionTarget string
+
+const (
+	ConnectionTargetOptions ConnectionTarget = ""
+	ConnectionTargetOpenAI  ConnectionTarget = "openai"
+	ConnectionTargetCodex   ConnectionTarget = "codex"
+)
+
 type Command struct {
 	Kind           CommandKind
 	Raw            string
@@ -42,6 +51,7 @@ type Command struct {
 	Question       string
 	Text           string
 	RealtimeAction RealtimeAction
+	Connection     ConnectionTarget
 }
 
 func ParseCommand(input string) (Command, error) {
@@ -54,6 +64,20 @@ func ParseCommand(input string) (Command, error) {
 	switch parts[0] {
 	case "/connect":
 		cmd.Kind = CommandConnect
+		if len(parts) > 2 {
+			return cmd, ErrUnsupportedConnection
+		}
+		if len(parts) == 2 {
+			switch parts[1] {
+			case "openai", "direct":
+				cmd.Connection = ConnectionTargetOpenAI
+			case "codex", "codex-cli":
+				cmd.Connection = ConnectionTargetCodex
+			default:
+				cmd.Connection = ConnectionTarget(parts[1])
+				return cmd, ErrUnsupportedConnection
+			}
+		}
 	case "/models":
 		cmd.Kind = CommandModels
 	case "/stop":
@@ -123,7 +147,9 @@ type HelpEntry struct {
 
 func HelpEntries() []HelpEntry {
 	return []HelpEntry{
-		{"/connect", "check configured runtime credentials and local settings without calling providers"},
+		{"/connect", "show connection options"},
+		{"/connect openai", "check direct OpenAI runtime credentials and local settings without calling providers"},
+		{"/connect codex", "show Codex CLI setup/status guidance; chat execution is not implemented through Codex CLI"},
 		{"/models", "show configured transcription and chat models"},
 		{"/record mic", "start microphone recording"},
 		{"/stop", "stop recording for processing"},
@@ -138,7 +164,7 @@ func HelpEntries() []HelpEntry {
 
 func DefaultSetupGuidance() []string {
 	return []string{
-		"OpenAI: run lingotui login openai to save your API key to macOS Keychain, or configure auth.json fallback for development, then run /connect. Secret values are never printed.",
+		"OpenAI: run lingotui login openai to save your API key to macOS Keychain, or configure auth.json fallback for development, then run /connect openai. Secret values are never printed.",
 		"ChatGPT Plus/Pro: run lingotui login chatgpt to complete browser OAuth login. OpenAI remains the default; set chat_model.provider to chatgpt manually for experimental ChatGPT/Codex chat. Provider calls happen only on /stop, /ask, /translate, or realtime chunks.",
 		"Codex CLI: optional alternative status checks only whether the codex binary is installed; lingoTUI does not use Codex CLI for chat yet or infer authentication state.",
 		"LocalWhisper: install whisper-cli externally and configure local_whisper.binary_path and local_whisper.model_path for local transcription. Setup does not verify model files or execute whisper until /stop.",

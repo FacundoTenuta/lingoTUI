@@ -25,6 +25,115 @@ func TestServiceConnectUsesConfiguredCredential(t *testing.T) {
 	}
 }
 
+func TestServiceConnectWithoutTargetShowsConnectionOptions(t *testing.T) {
+	service := NewService(Dependencies{CodexCLIStatus: func(context.Context) ConnectionOption {
+		return ConnectionOption{Target: ConnectionTargetCodex, Label: "Codex CLI", Status: "missing", Message: "install Codex CLI"}
+	}})
+
+	result, err := service.HandleInput(context.Background(), "/connect")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result.Connected {
+		t.Fatalf("result = %+v, /connect options must not mark chat connected", result)
+	}
+	if len(result.Connections) != 2 {
+		t.Fatalf("connections = %+v, want openai and codex", result.Connections)
+	}
+	joined := result.Message
+	for _, option := range result.Connections {
+		joined += "\n" + string(option.Target) + " " + option.Label + " " + option.Status + " " + option.Message
+	}
+	for _, want := range []string{"/connect openai", "/connect codex", "OpenAI/direct", "current chat/transcription provider", "Codex CLI", "install Codex CLI"} {
+		if !strings.Contains(joined, want) {
+			t.Fatalf("connection options missing %q: %s", want, joined)
+		}
+	}
+}
+
+func TestServiceConnectWithoutTargetDoesNotPreservePreviousOpenAIConnection(t *testing.T) {
+	credentials := &testutil.CredentialStore{Secrets: map[ProviderID]Secret{ProviderOpenAI: {Value: "sk-test"}}}
+	service := NewService(Dependencies{Credentials: credentials})
+
+	connected, err := service.HandleInput(context.Background(), "/connect openai")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !connected.Connected {
+		t.Fatalf("openai result = %+v, want connected", connected)
+	}
+
+	result, err := service.HandleInput(context.Background(), "/connect")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result.Connected {
+		t.Fatalf("result = %+v, /connect options must be status-only after OpenAI connection", result)
+	}
+}
+
+func TestServiceConnectOpenAIStillRunsDirectRuntimeCheck(t *testing.T) {
+	credentials := &testutil.CredentialStore{Secrets: map[ProviderID]Secret{ProviderOpenAI: {Value: "sk-test"}}}
+	service := NewService(Dependencies{Credentials: credentials})
+
+	result, err := service.HandleInput(context.Background(), "/connect openai")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !result.Connected || !strings.Contains(result.Message, "Runtime config is ready") {
+		t.Fatalf("result = %+v", result)
+	}
+}
+
+func TestServiceConnectCodexShowsTruthfulStatusWithoutChatConnection(t *testing.T) {
+	service := NewService(Dependencies{CodexCLIStatus: func(context.Context) ConnectionOption {
+		return ConnectionOption{Target: ConnectionTargetCodex, Label: "Codex CLI", Status: "ready", Message: "installed at /opt/homebrew/bin/codex", Ready: true}
+	}})
+
+	result, err := service.HandleInput(context.Background(), "/connect codex")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result.Connected {
+		t.Fatalf("result = %+v, Codex status must not pretend chat is connected", result)
+	}
+	joined := result.Message
+	for _, option := range result.Connections {
+		joined += "\n" + option.Label + " " + option.Status + " " + option.Message
+	}
+	for _, want := range []string{"does not run chat through Codex CLI yet", "/connect openai", "Codex CLI", "ready", "/opt/homebrew/bin/codex"} {
+		if !strings.Contains(joined, want) {
+			t.Fatalf("codex status missing %q: %s", want, joined)
+		}
+	}
+}
+
+func TestServiceConnectCodexDoesNotPreservePreviousOpenAIConnection(t *testing.T) {
+	credentials := &testutil.CredentialStore{Secrets: map[ProviderID]Secret{ProviderOpenAI: {Value: "sk-test"}}}
+	service := NewService(Dependencies{
+		Credentials: credentials,
+		CodexCLIStatus: func(context.Context) ConnectionOption {
+			return ConnectionOption{Target: ConnectionTargetCodex, Label: "Codex CLI", Status: "ready", Message: "installed", Ready: true}
+		},
+	})
+
+	connected, err := service.HandleInput(context.Background(), "/connect openai")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !connected.Connected {
+		t.Fatalf("openai result = %+v, want connected", connected)
+	}
+
+	result, err := service.HandleInput(context.Background(), "/connect codex")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result.Connected {
+		t.Fatalf("result = %+v, /connect codex must be status-only after OpenAI connection", result)
+	}
+}
+
 func TestServiceConnectMissingCredentialIsActionable(t *testing.T) {
 	service := NewService(Dependencies{Credentials: &testutil.CredentialStore{}})
 

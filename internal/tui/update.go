@@ -228,7 +228,12 @@ func statusForResult(result app.Result) statusState {
 	switch result.Command {
 	case app.CommandHelp, app.CommandModels:
 		return statusInfo
-	case app.CommandConnect, app.CommandRecord, app.CommandStop, app.CommandAsk, app.CommandTranslate, app.CommandRealtime, app.CommandClear:
+	case app.CommandConnect:
+		if len(result.Connections) > 0 && !result.Connected {
+			return statusInfo
+		}
+		return statusSuccess
+	case app.CommandRecord, app.CommandStop, app.CommandAsk, app.CommandTranslate, app.CommandRealtime, app.CommandClear:
 		return statusSuccess
 	default:
 		return statusIdle
@@ -285,6 +290,27 @@ func cleanErrorMessage(message string) string {
 }
 
 func formatResult(result app.Result) []string {
+	if len(result.Connections) > 0 {
+		lines := []string{result.Message, "Connection options:"}
+		for _, option := range result.Connections {
+			command := "/connect " + string(option.Target)
+			if option.Target == "" {
+				command = "/connect"
+			}
+			status := strings.TrimSpace(option.Status)
+			if status == "" {
+				status = "unknown"
+			}
+			line := fmt.Sprintf("  %-16s %s", command, option.Label)
+			if option.Message != "" {
+				line += fmt.Sprintf(" — %s: %s", status, option.Message)
+			} else {
+				line += " — " + status
+			}
+			lines = append(lines, line)
+		}
+		return lines
+	}
 	if len(result.Help) > 0 {
 		lines := []string{result.Message}
 		for _, entry := range result.Help {

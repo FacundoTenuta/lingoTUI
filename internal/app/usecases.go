@@ -18,14 +18,15 @@ var (
 )
 
 type Dependencies struct {
-	Recorder      Recorder
-	ChunkRecorder ChunkRecorder
-	Transcriber   Transcriber
-	Chat          Chat
-	Config        ConfigStore
-	Credentials   CredentialStore
-	Context       ContextStore
-	SetupGuidance []string
+	Recorder       Recorder
+	ChunkRecorder  ChunkRecorder
+	Transcriber    Transcriber
+	Chat           Chat
+	Config         ConfigStore
+	Credentials    CredentialStore
+	Context        ContextStore
+	SetupGuidance  []string
+	CodexCLIStatus func(context.Context) ConnectionOption
 }
 
 type Service struct {
@@ -45,10 +46,19 @@ type Result struct {
 	Translations Translations
 	Help         []HelpEntry
 	Guidance     []string
+	Connections  []ConnectionOption
 	Connected    bool
 	Recording    bool
 	Realtime     bool
 	Chunks       []RealtimeChunk
+}
+
+type ConnectionOption struct {
+	Target  ConnectionTarget
+	Label   string
+	Status  string
+	Message string
+	Ready   bool
 }
 
 func NewService(deps Dependencies) *Service { return &Service{deps: deps} }
@@ -62,7 +72,16 @@ func (s *Service) HandleInput(ctx context.Context, input string) (Result, error)
 	case CommandEmpty:
 		return s.result(CommandEmpty, ""), nil
 	case CommandConnect:
-		return s.Connect(ctx)
+		switch cmd.Connection {
+		case ConnectionTargetOptions:
+			return s.ConnectionOptions(ctx), nil
+		case ConnectionTargetOpenAI:
+			return s.Connect(ctx)
+		case ConnectionTargetCodex:
+			return s.ConnectCodex(ctx), nil
+		default:
+			return s.result(cmd.Kind, ""), ErrUnsupportedConnection
+		}
 	case CommandModels:
 		return s.Models(ctx)
 	case CommandRecord:
@@ -91,6 +110,24 @@ func (s *Service) HandleInput(ctx context.Context, input string) (Result, error)
 	default:
 		return s.result(cmd.Kind, ""), ErrUnknownCommand
 	}
+}
+
+func (s *Service) ConnectionOptions(ctx context.Context) Result {
+	result := s.result(CommandConnect, "Choose a connection option: /connect openai for direct OpenAI, or /connect codex for Codex CLI setup/status guidance.")
+	result.Connected = false
+	result.Connections = []ConnectionOption{
+		{Target: ConnectionTargetOpenAI, Label: "OpenAI/direct", Status: "available", Message: "Uses configured OpenAI credentials. This is the current chat/transcription provider path.", Ready: true},
+		s.codexConnectionOption(ctx),
+	}
+	return result
+}
+
+func (s *Service) ConnectCodex(ctx context.Context) Result {
+	option := s.codexConnectionOption(ctx)
+	result := s.result(CommandConnect, "Codex CLI is an optional setup/status path. lingoTUI does not run chat through Codex CLI yet; use /connect openai for the supported direct provider check.")
+	result.Connected = false
+	result.Connections = []ConnectionOption{option}
+	return result
 }
 
 func (s *Service) Connect(ctx context.Context) (Result, error) {
@@ -131,6 +168,25 @@ func (s *Service) Connect(ctx context.Context) (Result, error) {
 	}
 	s.connected = true
 	return s.result(CommandConnect, fmt.Sprintf("Runtime config is ready: transcription %s/%s; chat %s/%s. Provider calls happen only on /stop, /ask, /translate, or realtime chunks.", cfg.TranscriptionModel.Provider, cfg.TranscriptionModel.Name, cfg.ChatModel.Provider, cfg.ChatModel.Name)), nil
+}
+
+func (s *Service) codexConnectionOption(ctx context.Context) ConnectionOption {
+	if s.deps.CodexCLIStatus != nil {
+		option := s.deps.CodexCLIStatus(ctx)
+		if option.Target == "" {
+			option.Target = ConnectionTargetCodex
+		}
+		if strings.TrimSpace(option.Label) == "" {
+			option.Label = "Codex CLI"
+		}
+		return option
+	}
+	return ConnectionOption{
+		Target:  ConnectionTargetCodex,
+		Label:   "Codex CLI",
+		Status:  "unknown",
+		Message: "Optional alternative not checked. Install codex and authenticate with Codex CLI; lingoTUI does not use it for chat yet.",
+	}
 }
 
 func (s *Service) Models(ctx context.Context) (Result, error) {

@@ -121,8 +121,46 @@ func buildRuntimeWithOptions(baseDir string, options runtimeOptions) (tui.Model,
 		Credentials:   credentialStore,
 		Context:       memory.NewMemory(),
 		SetupGuidance: setupLines,
+		CodexCLIStatus: func(ctx context.Context) app.ConnectionOption {
+			return codexConnectionOption(ctx, options.codexChecker)
+		},
 	})
 	return tui.NewModel(service, setupLines...), nil
+}
+
+func codexConnectionOption(ctx context.Context, checker setup.CodexCLIChecker) app.ConnectionOption {
+	if checker == nil {
+		return app.ConnectionOption{
+			Target:  app.ConnectionTargetCodex,
+			Label:   "Codex CLI",
+			Status:  string(setup.StateUnknown),
+			Message: "optional alternative not checked; install codex and authenticate with Codex CLI. Chat execution through Codex CLI is not implemented in lingoTUI yet.",
+		}
+	}
+	item := checker.CodexCLI(ctx)
+	label := strings.TrimSpace(item.Name)
+	if label == "" {
+		label = "Codex CLI"
+	}
+	status := string(item.State)
+	if strings.TrimSpace(status) == "" {
+		status = string(setup.StateUnknown)
+	}
+	message := strings.TrimSpace(item.Message)
+	if message == "" {
+		message = "status unavailable"
+	}
+	if item.Path != "" {
+		message = fmt.Sprintf("%s (path: %s)", message, item.Path)
+	}
+	message += "; chat execution through Codex CLI is not implemented in lingoTUI yet"
+	return app.ConnectionOption{
+		Target:  app.ConnectionTargetCodex,
+		Label:   label,
+		Status:  status,
+		Message: message,
+		Ready:   item.State == setup.StateReady,
+	}
 }
 
 func buildCredentialStore(baseDir string) (*credentials.CompositeStore, error) {

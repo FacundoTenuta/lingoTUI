@@ -243,6 +243,75 @@ func TestModelUpdateEnterDispatchesSelectedStaticCommand(t *testing.T) {
 	}
 }
 
+func TestModelUpdateConnectMenuShowsConnectionOptions(t *testing.T) {
+	fake := &fakeApp{result: app.Result{
+		Command: app.CommandConnect,
+		Message: "Choose a connection option.",
+		Connections: []app.ConnectionOption{
+			{Target: app.ConnectionTargetOpenAI, Label: "OpenAI/direct", Status: "available", Message: "current provider path", Ready: true},
+			{Target: app.ConnectionTargetCodex, Label: "Codex CLI", Status: "missing", Message: "status/guidance only"},
+		},
+	}}
+	model := NewModel(fake)
+	model.MenuIndex = len(menuItems) - 1
+
+	model, cmd := updateModelWithCmd(t, model, tea.KeyMsg{Type: tea.KeyEnter})
+	if cmd == nil || model.Status != statusLoading || !strings.Contains(model.View(), "Loading: Running /connect...") {
+		t.Fatalf("expected connect options loading state, status=%v cmd=%v view=%s", model.Status, cmd, model.View())
+	}
+	model = applyCommand(t, model, cmd)
+
+	if got, want := strings.Join(fake.inputs, ","), "/connect"; got != want {
+		t.Fatalf("inputs = %q, want %q", got, want)
+	}
+	view := model.View()
+	for _, want := range []string{"Info: Choose a connection option", "Connection options:", "/connect openai", "OpenAI/direct", "/connect codex", "Codex CLI", "status/guidance only"} {
+		if !strings.Contains(view, want) {
+			t.Fatalf("view missing %q: %s", want, view)
+		}
+	}
+	if model.connected || strings.Contains(view, "Connection: connected") {
+		t.Fatalf("connect options must not mark provider connected: %s", view)
+	}
+}
+
+func TestModelUpdateConnectMenuClearsPreviousConnectedState(t *testing.T) {
+	fake := &fakeApp{result: app.Result{
+		Command: app.CommandConnect,
+		Message: "Choose a connection option.",
+		Connections: []app.ConnectionOption{
+			{Target: app.ConnectionTargetOpenAI, Label: "OpenAI/direct", Status: "available", Message: "current provider path", Ready: true},
+			{Target: app.ConnectionTargetCodex, Label: "Codex CLI", Status: "ready", Message: "status/guidance only", Ready: true},
+		},
+	}}
+	model := NewModel(fake)
+	model.connected = true
+
+	model = submitModel(t, model, "/connect")
+
+	if model.connected || strings.Contains(model.View(), "Connection: connected") {
+		t.Fatalf("connect options must clear previous connected state: %s", model.View())
+	}
+}
+
+func TestModelUpdateConnectCodexClearsPreviousConnectedState(t *testing.T) {
+	fake := &fakeApp{result: app.Result{
+		Command: app.CommandConnect,
+		Message: "Codex CLI is status-only.",
+		Connections: []app.ConnectionOption{
+			{Target: app.ConnectionTargetCodex, Label: "Codex CLI", Status: "ready", Message: "status/guidance only", Ready: true},
+		},
+	}}
+	model := NewModel(fake)
+	model.connected = true
+
+	model = submitModel(t, model, "/connect codex")
+
+	if model.connected || strings.Contains(model.View(), "Connection: connected") {
+		t.Fatalf("connect codex must clear previous connected state: %s", model.View())
+	}
+}
+
 func TestModelUpdateAskOptionSubmitsQuestion(t *testing.T) {
 	fake := &fakeApp{result: app.Result{Command: app.CommandAsk, Message: "answered"}}
 	model := NewModel(fake)
@@ -470,6 +539,18 @@ func TestModelUpdateErrorStripsDuplicateExternalErrorPrefix(t *testing.T) {
 	}
 }
 
+func TestModelUpdateUnsupportedConnectionErrorShowsSupportedOptions(t *testing.T) {
+	fake := &fakeApp{err: app.ErrUnsupportedConnection}
+	model := submitModel(t, NewModel(fake), "/connect anthropic")
+	view := model.View()
+
+	for _, want := range []string{"unsupported connection option", "/connect", "/connect openai", "/connect codex"} {
+		if !strings.Contains(view, want) {
+			t.Fatalf("view missing %q: %s", want, view)
+		}
+	}
+}
+
 func TestModelUpdateUnknownCommandPreservesState(t *testing.T) {
 	model := NewModel(app.NewService(app.Dependencies{}))
 	before := len(model.Messages)
@@ -501,7 +582,7 @@ func TestModelUpdateConnectRecordStopAskAndClear(t *testing.T) {
 		Context:     store,
 	})
 	model := NewModel(service)
-	for _, input := range []string{"/connect", "/record mic", "/stop", "/ask what happened?", "/clear"} {
+	for _, input := range []string{"/connect openai", "/record mic", "/stop", "/ask what happened?", "/clear"} {
 		model = submitModel(t, model, input)
 		if model.Err != nil {
 			t.Fatalf("%s error = %v; view: %s", input, model.Err, model.View())

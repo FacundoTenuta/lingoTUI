@@ -15,10 +15,17 @@ func TestParseCommand(t *testing.T) {
 		question string
 		text     string
 		action   RealtimeAction
+		connect  ConnectionTarget
 		err      error
 	}{
 		{name: "empty input", input: "  ", kind: CommandEmpty},
-		{name: "connect", input: "/connect", kind: CommandConnect},
+		{name: "connect options", input: "/connect", kind: CommandConnect},
+		{name: "connect openai", input: "/connect openai", kind: CommandConnect, connect: ConnectionTargetOpenAI},
+		{name: "connect direct alias", input: "/connect direct", kind: CommandConnect, connect: ConnectionTargetOpenAI},
+		{name: "connect codex", input: "/connect codex", kind: CommandConnect, connect: ConnectionTargetCodex},
+		{name: "connect codex cli alias", input: "/connect codex-cli", kind: CommandConnect, connect: ConnectionTargetCodex},
+		{name: "connect unsupported option", input: "/connect anthropic", kind: CommandConnect, connect: ConnectionTarget("anthropic"), err: ErrUnsupportedConnection},
+		{name: "connect extra args", input: "/connect openai now", kind: CommandConnect, err: ErrUnsupportedConnection},
 		{name: "models", input: "/models", kind: CommandModels},
 		{name: "record mic", input: "/record mic", kind: CommandRecord, source: AudioSourceMic},
 		{name: "unsupported system source", input: "/record system", kind: CommandRecord, source: AudioSourceSystem, err: ErrUnsupportedAudioSource},
@@ -48,17 +55,29 @@ func TestParseCommand(t *testing.T) {
 			if !errors.Is(err, tt.err) {
 				t.Fatalf("error = %v, want %v", err, tt.err)
 			}
-			if cmd.Kind != tt.kind || cmd.Source != tt.source || cmd.Question != tt.question || cmd.Text != tt.text || cmd.RealtimeAction != tt.action {
+			if cmd.Kind != tt.kind || cmd.Source != tt.source || cmd.Question != tt.question || cmd.Text != tt.text || cmd.RealtimeAction != tt.action || cmd.Connection != tt.connect {
 				t.Fatalf("command = %+v", cmd)
 			}
 		})
 	}
 }
 
+func TestUnsupportedConnectionErrorMentionsSupportedOptions(t *testing.T) {
+	_, err := ParseCommand("/connect anthropic")
+	if !errors.Is(err, ErrUnsupportedConnection) {
+		t.Fatalf("error = %v, want %v", err, ErrUnsupportedConnection)
+	}
+	for _, want := range []string{"/connect", "/connect openai", "/connect codex"} {
+		if !strings.Contains(err.Error(), want) {
+			t.Fatalf("error missing %q: %v", want, err)
+		}
+	}
+}
+
 func TestHelpEntriesCoverSupportedCommands(t *testing.T) {
 	entries := HelpEntries()
-	if len(entries) != 10 {
-		t.Fatalf("entries = %d, want 10", len(entries))
+	if len(entries) != 12 {
+		t.Fatalf("entries = %d, want 12", len(entries))
 	}
 	joined := ""
 	for _, entry := range entries {
@@ -67,7 +86,7 @@ func TestHelpEntriesCoverSupportedCommands(t *testing.T) {
 		}
 		joined += entry.Command + "\n"
 	}
-	for _, want := range []string{"/translate <text>", "/ask <question>", "/stop", "/realtime start mic", "/realtime stop"} {
+	for _, want := range []string{"/connect openai", "/connect codex", "/translate <text>", "/ask <question>", "/stop", "/realtime start mic", "/realtime stop"} {
 		if !strings.Contains(joined, want) {
 			t.Fatalf("help entries missing %q: %s", want, joined)
 		}

@@ -81,7 +81,7 @@ var menuItems = []menuItem{
 	{Label: "Record mic", Description: "Start recording from the microphone", Command: "/record mic"},
 	{Label: "Stop", Description: "Stop recording and process audio", Command: "/stop"},
 	{Label: "Clear", Description: "Clear in-memory context", Command: "/clear"},
-	{Label: "Connect", Description: "Connect to the configured provider", Command: "/connect"},
+	{Label: "Connect", Description: "Choose connection/provider option", Command: "/connect"},
 }
 
 func NewModel(service App, onboardingLines ...string) Model {
