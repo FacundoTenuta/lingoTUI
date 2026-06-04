@@ -22,6 +22,7 @@ type Model struct {
 	Status              statusState
 	StatusMessage       string
 	MenuIndex           int
+	ConnectIndex        int
 	width               int
 	height              int
 	inputMode           inputMode
@@ -50,6 +51,7 @@ const (
 	commandMode
 	askMode
 	translateMode
+	connectMode
 )
 
 const (
@@ -70,6 +72,7 @@ type menuItem struct {
 	Command     string
 	Ask         bool
 	Translate   bool
+	Connect     bool
 }
 
 var menuItems = []menuItem{
@@ -81,7 +84,13 @@ var menuItems = []menuItem{
 	{Label: "Record mic", Description: "Start recording from the microphone", Command: "/record mic"},
 	{Label: "Stop", Description: "Stop recording and process audio", Command: "/stop"},
 	{Label: "Clear", Description: "Clear in-memory context", Command: "/clear"},
-	{Label: "Connect", Description: "Choose connection/provider option", Command: "/connect"},
+	{Label: "Connect", Description: "Choose connection/provider option", Connect: true},
+}
+
+var connectMenuItems = []menuItem{
+	{Label: "OpenAI/direct", Description: "Check direct OpenAI runtime credentials and local settings", Command: "/connect openai"},
+	{Label: "Codex CLI", Description: "Show Codex CLI setup/status guidance only", Command: "/connect codex"},
+	{Label: "Back", Description: "Return to the main menu"},
 }
 
 func NewModel(service App, onboardingLines ...string) Model {

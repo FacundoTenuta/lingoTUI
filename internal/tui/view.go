@@ -86,6 +86,30 @@ func (m Model) View() string {
 		b.WriteString(shortcutStyle.Render(footerShortcuts))
 		return m.fillTerminalHeight(b.String())
 	}
+	if m.inputMode == connectMode {
+		b.WriteString(sectionTitle("Connect"))
+		b.WriteByte('\n')
+		b.WriteString(subtleStyle.Render("Choose a connection option. Esc returns to the main menu."))
+		b.WriteByte('\n')
+		for i, item := range connectMenuItems {
+			cursor := "  "
+			if i == m.ConnectIndex {
+				cursor = "> "
+			}
+			b.WriteString(promptStyle.Render(cursor))
+			b.WriteString(titleStyle.Render(padRight(item.Label, 14)))
+			if item.Description != "" {
+				b.WriteString(" ")
+				b.WriteString(item.Description)
+			}
+			b.WriteByte('\n')
+		}
+		b.WriteString("\n")
+		b.WriteString(sectionTitle("Footer"))
+		b.WriteByte('\n')
+		b.WriteString(shortcutStyle.Render(footerShortcuts))
+		return m.fillTerminalHeight(b.String())
+	}
 	b.WriteString(sectionTitle("Menu/Input"))
 	b.WriteByte('\n')
 	if m.inputMode == askMode {

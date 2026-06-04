@@ -244,34 +244,103 @@ func TestModelUpdateEnterDispatchesSelectedStaticCommand(t *testing.T) {
 }
 
 func TestModelUpdateConnectMenuShowsConnectionOptions(t *testing.T) {
-	fake := &fakeApp{result: app.Result{
-		Command: app.CommandConnect,
-		Message: "Choose a connection option.",
-		Connections: []app.ConnectionOption{
-			{Target: app.ConnectionTargetOpenAI, Label: "OpenAI/direct", Status: "available", Message: "current provider path", Ready: true},
-			{Target: app.ConnectionTargetCodex, Label: "Codex CLI", Status: "missing", Message: "status/guidance only"},
-		},
-	}}
+	fake := &fakeApp{}
 	model := NewModel(fake)
 	model.MenuIndex = len(menuItems) - 1
 
 	model, cmd := updateModelWithCmd(t, model, tea.KeyMsg{Type: tea.KeyEnter})
-	if cmd == nil || model.Status != statusLoading || !strings.Contains(model.View(), "Loading: Running /connect...") {
-		t.Fatalf("expected connect options loading state, status=%v cmd=%v view=%s", model.Status, cmd, model.View())
+	if cmd != nil || model.inputMode != connectMode || len(fake.inputs) != 0 {
+		t.Fatalf("expected connect submenu without app call, mode=%v cmd=%v inputs=%v", model.inputMode, cmd, fake.inputs)
 	}
-	model = applyCommand(t, model, cmd)
 
-	if got, want := strings.Join(fake.inputs, ","), "/connect"; got != want {
-		t.Fatalf("inputs = %q, want %q", got, want)
-	}
 	view := model.View()
-	for _, want := range []string{"Info: Choose a connection option", "Connection options:", "/connect openai", "OpenAI/direct", "/connect codex", "Codex CLI", "status/guidance only"} {
+	for _, want := range []string{"[ Connect ]", "Choose a connection option", "> OpenAI/direct", "Codex CLI", "Back", "Esc returns to the main menu"} {
 		if !strings.Contains(view, want) {
 			t.Fatalf("view missing %q: %s", want, view)
 		}
 	}
 	if model.connected || strings.Contains(view, "Connection: connected") {
-		t.Fatalf("connect options must not mark provider connected: %s", view)
+		t.Fatalf("connect submenu must not mark provider connected: %s", view)
+	}
+}
+
+func TestModelUpdateConnectSubmenuOpenAISubmitsDirectConnect(t *testing.T) {
+	fake := &fakeApp{result: app.Result{Command: app.CommandConnect, Message: "Runtime config is ready", Connected: true}}
+	model := NewModel(fake)
+	model.MenuIndex = len(menuItems) - 1
+	model = updateModel(t, model, tea.KeyMsg{Type: tea.KeyEnter})
+
+	model, cmd := updateModelWithCmd(t, model, tea.KeyMsg{Type: tea.KeyEnter})
+	if got := strings.Join(fake.inputs, ","); got != "" {
+		t.Fatalf("app called before command execution: %q", got)
+	}
+	if cmd == nil || model.Status != statusLoading || !strings.Contains(model.View(), "Loading: Running /connect...") {
+		t.Fatalf("expected openai connect loading state, status=%v cmd=%v view=%s", model.Status, cmd, model.View())
+	}
+
+	model = applyCommand(t, model, cmd)
+	if got, want := strings.Join(fake.inputs, ","), "/connect openai"; got != want {
+		t.Fatalf("inputs = %q, want %q", got, want)
+	}
+	if !model.connected || !strings.Contains(model.View(), "Runtime config is ready") {
+		t.Fatalf("expected direct OpenAI connection result: %s", model.View())
+	}
+}
+
+func TestModelUpdateConnectSubmenuCodexSubmitsStatusOnlyConnect(t *testing.T) {
+	fake := &fakeApp{result: app.Result{
+		Command: app.CommandConnect,
+		Message: "Codex CLI is status-only.",
+		Connections: []app.ConnectionOption{
+			{Target: app.ConnectionTargetCodex, Label: "Codex CLI", Status: "ready", Message: "installed", Ready: true},
+		},
+	}}
+	model := NewModel(fake)
+	model.connected = true
+	model.MenuIndex = len(menuItems) - 1
+	model = updateModel(t, model, tea.KeyMsg{Type: tea.KeyEnter})
+	model = updateModel(t, model, tea.KeyMsg{Type: tea.KeyDown})
+
+	model, cmd := updateModelWithCmd(t, model, tea.KeyMsg{Type: tea.KeyEnter})
+	model = applyCommand(t, model, cmd)
+
+	if got, want := strings.Join(fake.inputs, ","), "/connect codex"; got != want {
+		t.Fatalf("inputs = %q, want %q", got, want)
+	}
+	if model.connected || strings.Contains(model.View(), "Connection: connected") {
+		t.Fatalf("codex submenu action must not mark chat connected: %s", model.View())
+	}
+	for _, want := range []string{"Codex CLI is status-only", "Codex CLI", "ready", "installed"} {
+		if !strings.Contains(model.View(), want) {
+			t.Fatalf("view missing %q: %s", want, model.View())
+		}
+	}
+}
+
+func TestModelUpdateConnectSubmenuBackReturnsToMainMenu(t *testing.T) {
+	fake := &fakeApp{}
+	model := NewModel(fake)
+	model.MenuIndex = len(menuItems) - 1
+	model = updateModel(t, model, tea.KeyMsg{Type: tea.KeyEnter})
+	model.ConnectIndex = len(connectMenuItems) - 1
+
+	model, cmd := updateModelWithCmd(t, model, tea.KeyMsg{Type: tea.KeyEnter})
+	if cmd != nil || model.inputMode != menuMode || model.ConnectIndex != 0 || len(fake.inputs) != 0 {
+		t.Fatalf("expected back to return to main menu without app call, mode=%v index=%d cmd=%v inputs=%v", model.inputMode, model.ConnectIndex, cmd, fake.inputs)
+	}
+	if !strings.Contains(model.View(), "[ Menu/Input ]") || !strings.Contains(model.View(), "Connect") {
+		t.Fatalf("expected main menu view: %s", model.View())
+	}
+}
+
+func TestModelUpdateEscReturnsFromConnectSubmenuToMainMenu(t *testing.T) {
+	model := NewModel(&fakeApp{})
+	model.MenuIndex = len(menuItems) - 1
+	model = updateModel(t, model, tea.KeyMsg{Type: tea.KeyEnter})
+
+	model, cmd := updateModelWithCmd(t, model, tea.KeyMsg{Type: tea.KeyEsc})
+	if cmd != nil || model.inputMode != menuMode || model.ConnectIndex != 0 {
+		t.Fatalf("expected esc to cancel connect submenu, mode=%v index=%d cmd=%v", model.inputMode, model.ConnectIndex, cmd)
 	}
 }
 

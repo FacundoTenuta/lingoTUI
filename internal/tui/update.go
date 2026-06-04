@@ -31,6 +31,12 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		case "ctrl+c":
 			return m, tea.Quit
 		case "esc":
+			if m.inputMode == connectMode {
+				m.inputMode = menuMode
+				m.ConnectIndex = 0
+				m.Input = ""
+				return m, nil
+			}
 			if m.inputMode != menuMode {
 				m.inputMode = menuMode
 				m.Input = ""
@@ -40,6 +46,8 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		case "up":
 			if m.inputMode == menuMode {
 				m.MenuIndex = (m.MenuIndex + len(menuItems) - 1) % len(menuItems)
+			} else if m.inputMode == connectMode {
+				m.ConnectIndex = (m.ConnectIndex + len(connectMenuItems) - 1) % len(connectMenuItems)
 			}
 			return m, nil
 		case "k":
@@ -47,10 +55,16 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				m.MenuIndex = (m.MenuIndex + len(menuItems) - 1) % len(menuItems)
 				return m, nil
 			}
+			if m.inputMode == connectMode {
+				m.ConnectIndex = (m.ConnectIndex + len(connectMenuItems) - 1) % len(connectMenuItems)
+				return m, nil
+			}
 			m.Input += msg.String()
 		case "down":
 			if m.inputMode == menuMode {
 				m.MenuIndex = (m.MenuIndex + 1) % len(menuItems)
+			} else if m.inputMode == connectMode {
+				m.ConnectIndex = (m.ConnectIndex + 1) % len(connectMenuItems)
 			}
 			return m, nil
 		case "j":
@@ -58,10 +72,17 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				m.MenuIndex = (m.MenuIndex + 1) % len(menuItems)
 				return m, nil
 			}
+			if m.inputMode == connectMode {
+				m.ConnectIndex = (m.ConnectIndex + 1) % len(connectMenuItems)
+				return m, nil
+			}
 			m.Input += msg.String()
 		case "enter":
 			if m.inputMode == menuMode {
 				return m.submitMenuItem()
+			}
+			if m.inputMode == connectMode {
+				return m.submitConnectMenuItem()
 			}
 			if m.inputMode == askMode {
 				return m.submitAsk()
@@ -85,7 +106,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			if m.Status == statusLoading {
 				return m, nil
 			}
-			if m.inputMode == menuMode {
+			if m.inputMode == menuMode || m.inputMode == connectMode {
 				m.inputMode = commandMode
 			}
 			m.Input += msg.String()
@@ -112,6 +133,32 @@ func (m Model) submitMenuItem() (Model, tea.Cmd) {
 	}
 	if item.Translate {
 		m.inputMode = translateMode
+		m.Input = ""
+		return m, nil
+	}
+	if item.Connect {
+		m.inputMode = connectMode
+		m.ConnectIndex = 0
+		m.Input = ""
+		return m, nil
+	}
+	return m.submit(item.Command)
+}
+
+func (m Model) submitConnectMenuItem() (Model, tea.Cmd) {
+	if m.Status == statusLoading {
+		return m, nil
+	}
+	if len(connectMenuItems) == 0 {
+		return m, nil
+	}
+	if m.ConnectIndex < 0 || m.ConnectIndex >= len(connectMenuItems) {
+		m.ConnectIndex = 0
+	}
+	item := connectMenuItems[m.ConnectIndex]
+	if item.Command == "" {
+		m.inputMode = menuMode
+		m.ConnectIndex = 0
 		m.Input = ""
 		return m, nil
 	}
