@@ -60,12 +60,19 @@ func (c *Chat) Summarize(ctx context.Context, transcript app.Transcript, languag
 }
 
 func (c *Chat) Answer(ctx context.Context, question app.Question, recent app.RecentContext, model app.ModelRef) (app.Answer, error) {
+	messages := []Message{
+		{Role: "system", Text: "Follow the user's instruction or answer their question."},
+		{Role: "user", Text: string(question)},
+	}
+	if recent.HasContent() {
+		messages = []Message{
+			{Role: "system", Text: "Follow the user's instruction or answer their question. Use the recent transcript and multilingual summary as additional context when relevant."},
+			{Role: "user", Text: fmt.Sprintf("Transcript:\n%s\n\nSummary:\n%s\n\nUser input: %s", recent.Transcript.Text, formatSummary(recent.Summary), question)},
+		}
+	}
 	response, err := c.create(ctx, ResponseRequest{
-		Model: strings.TrimSpace(model.Name),
-		Messages: []Message{
-			{Role: "system", Text: "Answer using only the recent transcript and multilingual summary. If the answer is not present, say so briefly."},
-			{Role: "user", Text: fmt.Sprintf("Transcript:\n%s\n\nSummary:\n%s\n\nQuestion: %s", recent.Transcript.Text, formatSummary(recent.Summary), question)},
-		},
+		Model:    strings.TrimSpace(model.Name),
+		Messages: messages,
 	})
 	if err != nil {
 		return "", err

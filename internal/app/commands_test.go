@@ -14,6 +14,7 @@ func TestParseCommand(t *testing.T) {
 		source   AudioSource
 		question string
 		text     string
+		debug    DebugAction
 		action   RealtimeAction
 		connect  ConnectionTarget
 		err      error
@@ -36,6 +37,11 @@ func TestParseCommand(t *testing.T) {
 		{name: "ask missing question", input: "/ask", kind: CommandAsk, err: ErrMissingCommandArgument},
 		{name: "translate with text", input: "/translate hello", kind: CommandTranslate, text: "hello"},
 		{name: "translate missing text", input: "/translate", kind: CommandTranslate, err: ErrMissingCommandArgument},
+		{name: "debug toggle", input: "/debug", kind: CommandDebug},
+		{name: "debug on", input: "/debug on", kind: CommandDebug, debug: DebugActionOn},
+		{name: "debug off", input: "/debug off", kind: CommandDebug, debug: DebugActionOff},
+		{name: "debug status", input: "/debug status", kind: CommandDebug, debug: DebugActionStatus},
+		{name: "debug unsupported action", input: "/debug maybe", kind: CommandDebug, debug: DebugAction("maybe"), err: ErrUnknownCommand},
 		{name: "realtime start shorthand", input: "/realtime start", kind: CommandRealtime, source: AudioSourceMic, action: RealtimeActionStart},
 		{name: "realtime start mic", input: "/realtime start mic", kind: CommandRealtime, source: AudioSourceMic, action: RealtimeActionStart},
 		{name: "realtime start unsupported source", input: "/realtime start system", kind: CommandRealtime, source: AudioSourceSystem, action: RealtimeActionStart, err: ErrUnsupportedAudioSource},
@@ -55,7 +61,7 @@ func TestParseCommand(t *testing.T) {
 			if !errors.Is(err, tt.err) {
 				t.Fatalf("error = %v, want %v", err, tt.err)
 			}
-			if cmd.Kind != tt.kind || cmd.Source != tt.source || cmd.Question != tt.question || cmd.Text != tt.text || cmd.RealtimeAction != tt.action || cmd.Connection != tt.connect {
+			if cmd.Kind != tt.kind || cmd.Source != tt.source || cmd.Question != tt.question || cmd.Text != tt.text || cmd.DebugAction != tt.debug || cmd.RealtimeAction != tt.action || cmd.Connection != tt.connect {
 				t.Fatalf("command = %+v", cmd)
 			}
 		})
@@ -76,8 +82,8 @@ func TestUnsupportedConnectionErrorMentionsSupportedOptions(t *testing.T) {
 
 func TestHelpEntriesCoverSupportedCommands(t *testing.T) {
 	entries := HelpEntries()
-	if len(entries) != 12 {
-		t.Fatalf("entries = %d, want 12", len(entries))
+	if len(entries) != 13 {
+		t.Fatalf("entries = %d, want 13", len(entries))
 	}
 	joined := ""
 	for _, entry := range entries {
@@ -86,7 +92,7 @@ func TestHelpEntriesCoverSupportedCommands(t *testing.T) {
 		}
 		joined += entry.Command + "\n"
 	}
-	for _, want := range []string{"/connect openai", "/connect codex", "/translate <text>", "/ask <question>", "/stop", "/realtime start mic", "/realtime stop"} {
+	for _, want := range []string{"/connect openai", "/connect codex", "/translate <text>", "/ask <text>", "/debug [on|off|status]", "/stop", "/realtime start mic", "/realtime stop"} {
 		if !strings.Contains(joined, want) {
 			t.Fatalf("help entries missing %q: %s", want, joined)
 		}

@@ -254,6 +254,112 @@ func TestServiceCodexConfiguredWithoutModelDoesNotUseOpenAIDefault(t *testing.T)
 	}
 }
 
+func TestServiceDebugCommandTogglesTimingMode(t *testing.T) {
+	service := NewService(Dependencies{})
+
+	result, err := service.HandleInput(context.Background(), "/debug status")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result.DebugEnabled || !strings.Contains(result.Message, "off") {
+		t.Fatalf("status result = %+v", result)
+	}
+
+	result, err = service.HandleInput(context.Background(), "/debug on")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !result.DebugEnabled || !strings.Contains(result.Message, "on") {
+		t.Fatalf("on result = %+v", result)
+	}
+
+	result, err = service.HandleInput(context.Background(), "/debug")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result.DebugEnabled || !strings.Contains(result.Message, "off") {
+		t.Fatalf("toggle result = %+v", result)
+	}
+}
+
+func TestServiceDebugTimingMetadataForTranslate(t *testing.T) {
+	clock := &fakeClock{current: time.Unix(0, 0), step: 25 * time.Millisecond}
+	chat := &recordingProvider{
+		translations: Translations{LanguageSpanish: "hola"},
+		debugTimings: []Timing{{Name: "codex.exec", Provider: ProviderCodexCLI, Detail: "codex", Duration: 150 * time.Millisecond}},
+	}
+	service := NewService(Dependencies{Chat: chat, Now: clock.Now})
+	if _, err := service.HandleInput(context.Background(), "/debug on"); err != nil {
+		t.Fatal(err)
+	}
+
+	result, err := service.HandleInput(context.Background(), "/translate hello")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !result.DebugEnabled {
+		t.Fatalf("result = %+v, want debug enabled", result)
+	}
+	joined := timingNames(result.Timings)
+	for _, want := range []string{"provider.chat", "codex.exec", "command.total"} {
+		if !strings.Contains(joined, want) {
+			t.Fatalf("timings missing %q: %+v", want, result.Timings)
+		}
+	}
+}
+
+func TestServiceDebugTimingMetadataForFailedTranslate(t *testing.T) {
+	clock := &fakeClock{current: time.Unix(0, 0), step: 25 * time.Millisecond}
+	chat := &recordingProvider{
+		translateErr: errors.New("provider timeout"),
+		debugTimings: []Timing{{Name: "codex.exec", Provider: ProviderCodexCLI, Detail: "codex", Duration: 150 * time.Millisecond}},
+	}
+	service := NewService(Dependencies{Chat: chat, Now: clock.Now})
+	if _, err := service.HandleInput(context.Background(), "/debug on"); err != nil {
+		t.Fatal(err)
+	}
+
+	result, err := service.HandleInput(context.Background(), "/translate hello")
+	if err == nil || !strings.Contains(err.Error(), "translate text") {
+		t.Fatalf("error = %v, want translate text provider error", err)
+	}
+	if !result.DebugEnabled {
+		t.Fatalf("result = %+v, want debug enabled", result)
+	}
+	joined := timingNames(result.Timings)
+	for _, want := range []string{"provider.chat", "codex.exec", "command.total"} {
+		if !strings.Contains(joined, want) {
+			t.Fatalf("timings missing %q: %+v", want, result.Timings)
+		}
+	}
+}
+
+func TestServiceDebugTimingMetadataForFailedAsk(t *testing.T) {
+	clock := &fakeClock{current: time.Unix(0, 0), step: 25 * time.Millisecond}
+	chat := &recordingProvider{
+		answerErr:    errors.New("provider timeout"),
+		debugTimings: []Timing{{Name: "codex.exec", Provider: ProviderCodexCLI, Detail: "codex", Duration: 150 * time.Millisecond}},
+	}
+	service := NewService(Dependencies{Chat: chat, Context: &testutil.ContextStore{}, Now: clock.Now})
+	if _, err := service.HandleInput(context.Background(), "/debug on"); err != nil {
+		t.Fatal(err)
+	}
+
+	result, err := service.HandleInput(context.Background(), "/ask why is translate slow?")
+	if err == nil || !strings.Contains(err.Error(), "answer question") {
+		t.Fatalf("error = %v, want answer question provider error", err)
+	}
+	if !result.DebugEnabled {
+		t.Fatalf("result = %+v, want debug enabled", result)
+	}
+	joined := timingNames(result.Timings)
+	for _, want := range []string{"provider.chat", "codex.exec", "command.total"} {
+		if !strings.Contains(joined, want) {
+			t.Fatalf("timings missing %q: %+v", want, result.Timings)
+		}
+	}
+}
+
 func TestServiceConnectMissingCredentialIsActionable(t *testing.T) {
 	service := NewService(Dependencies{Credentials: &testutil.CredentialStore{}})
 
@@ -441,6 +547,81 @@ func TestServiceAskMissingChatUsesConfiguredProviderGuidance(t *testing.T) {
 	}
 }
 
+func TestServiceAskSendsFreeFormQuestionWithoutRecentContext(t *testing.T) {
+	provider := &recordingProvider{answer: Answer("perro means dog")}
+	service := NewService(Dependencies{
+		Chat:    provider,
+		Context: &testutil.ContextStore{},
+	})
+
+	result, err := service.Ask(context.Background(), Question("perro"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result.Answer != "perro means dog" || provider.question != "perro" {
+		t.Fatalf("result = %+v, provider question = %q", result, provider.question)
+	}
+	if provider.recent.HasContent() || result.Context.HasContent() {
+		t.Fatalf("context should be optional and empty without recordings: provider=%+v result=%+v", provider.recent, result.Context)
+	}
+}
+
+func TestServiceAskIncludesRecentContextWhenAvailable(t *testing.T) {
+	provider := &recordingProvider{answer: Answer("They greeted each other.")}
+	recent := RecentContext{Transcript: Transcript{Text: "hola mundo"}, Summary: Summary{LanguageEnglish: "hello world"}}
+	service := NewService(Dependencies{
+		Chat:    provider,
+		Context: &testutil.ContextStore{Has: true, Context: recent},
+	})
+
+	result, err := service.Ask(context.Background(), Question("explain this"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !reflect.DeepEqual(provider.recent, recent) || !reflect.DeepEqual(result.Context, recent) {
+		t.Fatalf("recent context provider=%+v result=%+v want=%+v", provider.recent, result.Context, recent)
+	}
+}
+
+func TestServiceAskMissingQuestionIsActionable(t *testing.T) {
+	service := NewService(Dependencies{
+		Chat:    &recordingProvider{},
+		Context: &testutil.ContextStore{},
+	})
+
+	_, err := service.Ask(context.Background(), Question("  "))
+	if !errors.Is(err, ErrMissingCommandArgument) {
+		t.Fatalf("error = %v, want %v", err, ErrMissingCommandArgument)
+	}
+}
+
+func TestServiceConnectCodexRoutesAskWithoutRecentContextThroughCLIChat(t *testing.T) {
+	direct := &recordingProvider{answer: Answer("direct answer")}
+	codex := &recordingProvider{answer: Answer("codex answer")}
+	service := NewService(Dependencies{
+		Chat: direct,
+		CodexCLIStatus: func(context.Context) ConnectionOption {
+			return ConnectionOption{Target: ConnectionTargetCodex, Label: "Codex CLI", Status: "ready", Message: "installed", Ready: true}
+		},
+		CodexCLIChat: codex,
+		Context:      &testutil.ContextStore{},
+	})
+
+	if result, err := service.HandleInput(context.Background(), "/connect codex"); err != nil || !result.Connected {
+		t.Fatalf("connect result = %+v, err = %v", result, err)
+	}
+	answer, err := service.HandleInput(context.Background(), "/ask perro")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if answer.Answer != "codex answer" || codex.question != "perro" || direct.question != "" {
+		t.Fatalf("answer=%q codex=%q direct=%q", answer.Answer, codex.question, direct.question)
+	}
+	if codex.recent.HasContent() || codex.answerModel.Provider != ProviderCodexCLI {
+		t.Fatalf("codex recent/model = %+v %+v", codex.recent, codex.answerModel)
+	}
+}
+
 func TestServiceModelsShowsMixedConfiguredRefs(t *testing.T) {
 	service := NewService(Dependencies{Config: &testutil.ConfigStore{Config: Config{
 		TranscriptionModel: ModelRef{Provider: ProviderLocalWhisper, Name: "ggml-small.bin", Purpose: ModelPurposeTranscription},
@@ -519,8 +700,12 @@ func TestServiceRecordStopSummarizeAskAndClear(t *testing.T) {
 	if _, err := service.Clear(ctx); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := service.Ask(ctx, Question("still there?")); !errors.Is(err, ErrNoRecentContext) {
-		t.Fatalf("error = %v, want %v", err, ErrNoRecentContext)
+	answer, err = service.Ask(ctx, Question("still there?"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if answer.Context.HasContent() {
+		t.Fatalf("answer after clear should not require context: %+v", answer.Context)
 	}
 }
 
@@ -934,11 +1119,15 @@ type recordingProvider struct {
 	translationLanguages []Language
 	translationModel     ModelRef
 	answerModel          ModelRef
+	recent               RecentContext
 	summaryModel         ModelRef
 	transcribeCalls      int
 	translateCalls       int
+	translateErr         error
+	answerErr            error
 	transcribeFile       AudioFile
 	transcriptionModel   ModelRef
+	debugTimings         []Timing
 }
 
 type mixedCredentialStore struct {
@@ -982,6 +1171,9 @@ func (p *recordingProvider) Translate(_ context.Context, text string, languages 
 	p.translationText = text
 	p.translationLanguages = append([]Language(nil), languages...)
 	p.translationModel = model
+	if p.translateErr != nil {
+		return nil, p.translateErr
+	}
 	return p.translations, nil
 }
 
@@ -998,8 +1190,35 @@ func (p *recordingProvider) Summarize(_ context.Context, _ Transcript, languages
 	return p.summary, nil
 }
 
-func (p *recordingProvider) Answer(_ context.Context, question Question, _ RecentContext, model ModelRef) (Answer, error) {
+func (p *recordingProvider) Answer(_ context.Context, question Question, recent RecentContext, model ModelRef) (Answer, error) {
 	p.question = question
+	p.recent = recent
 	p.answerModel = model
+	if p.answerErr != nil {
+		return "", p.answerErr
+	}
 	return p.answer, nil
+}
+
+func (p *recordingProvider) DebugTimings() []Timing {
+	return append([]Timing(nil), p.debugTimings...)
+}
+
+type fakeClock struct {
+	current time.Time
+	step    time.Duration
+}
+
+func (c *fakeClock) Now() time.Time {
+	now := c.current
+	c.current = c.current.Add(c.step)
+	return now
+}
+
+func timingNames(timings []Timing) string {
+	var names []string
+	for _, timing := range timings {
+		names = append(names, timing.Name)
+	}
+	return strings.Join(names, "\n")
 }

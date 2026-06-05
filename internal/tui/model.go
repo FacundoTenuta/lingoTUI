@@ -76,7 +76,7 @@ type menuItem struct {
 }
 
 var menuItems = []menuItem{
-	{Label: "Ask", Description: "Ask a question using the current context", Ask: true},
+	{Label: "Ask", Description: "Send a free-form instruction or question", Ask: true},
 	{Label: "Translate", Description: "Translate text into ES/EN/DE", Translate: true},
 	{Label: "Realtime mic", Description: "Start chunked realtime translation", Command: "/realtime start mic"},
 	{Label: "Help", Description: "Show available commands", Command: "/help"},

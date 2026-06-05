@@ -141,10 +141,17 @@ func (c *Client) Summarize(ctx context.Context, transcript app.Transcript, langu
 }
 
 func (c *Client) Answer(ctx context.Context, question app.Question, recent app.RecentContext, model app.ModelRef) (app.Answer, error) {
-	content, err := c.chat(ctx, model, []chatMessage{
-		{Role: "system", Content: "Answer using only the recent transcript and multilingual summary. If the answer is not present, say so briefly."},
-		{Role: "user", Content: fmt.Sprintf("Transcript:\n%s\n\nSummary:\n%s\n\nQuestion: %s", recent.Transcript.Text, formatSummary(recent.Summary), question)},
-	}, false)
+	messages := []chatMessage{
+		{Role: "system", Content: "Follow the user's instruction or answer their question."},
+		{Role: "user", Content: string(question)},
+	}
+	if recent.HasContent() {
+		messages = []chatMessage{
+			{Role: "system", Content: "Follow the user's instruction or answer their question. Use the recent transcript and multilingual summary as additional context when relevant."},
+			{Role: "user", Content: fmt.Sprintf("Transcript:\n%s\n\nSummary:\n%s\n\nUser input: %s", recent.Transcript.Text, formatSummary(recent.Summary), question)},
+		}
+	}
+	content, err := c.chat(ctx, model, messages, false)
 	if err != nil {
 		return "", err
 	}

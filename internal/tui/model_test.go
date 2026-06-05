@@ -5,6 +5,7 @@ import (
 	"errors"
 	"strings"
 	"testing"
+	"time"
 	"unicode/utf8"
 
 	"github.com/FacundoTenuta/lingoTUI/internal/app"
@@ -21,7 +22,7 @@ func TestModelUpdateShowsHelp(t *testing.T) {
 	if updated.Status != statusInfo || !strings.Contains(view, "Info: Supported commands:") {
 		t.Fatalf("expected info status, status=%v view=%s", updated.Status, view)
 	}
-	if !strings.Contains(view, "/record mic") || !strings.Contains(view, "/realtime start mic") || !strings.Contains(view, "/ask <question>") || !strings.Contains(view, "/translate <text>") || !strings.Contains(view, "auth.json") {
+	if !strings.Contains(view, "/record mic") || !strings.Contains(view, "/realtime start mic") || !strings.Contains(view, "/ask <text>") || !strings.Contains(view, "/translate <text>") || !strings.Contains(view, "/debug") || !strings.Contains(view, "auth.json") {
 		t.Fatalf("view missing help: %s", view)
 	}
 	for _, want := range []string{"  /connect", "  /translate <text>", "show supported commands"} {
@@ -710,6 +711,49 @@ func TestModelTranslateResultShowsTranslationsInHistory(t *testing.T) {
 	view := model.View()
 
 	for _, want := range []string{"History", "> /translate hello", "Translations:", "ES:", "hola", "EN:", "hello", "DE:", "hallo"} {
+		if !strings.Contains(view, want) {
+			t.Fatalf("view missing %q: %s", want, view)
+		}
+	}
+}
+
+func TestModelDebugTimingsOnlyShowWhenEnabled(t *testing.T) {
+	timings := []app.Timing{
+		{Name: "provider.chat", Provider: app.ProviderCodexCLI, Duration: 125 * time.Millisecond},
+		{Name: "codex.exec", Provider: app.ProviderCodexCLI, Detail: "codex", Duration: 2 * time.Second},
+	}
+	baseResult := app.Result{Command: app.CommandTranslate, Message: "Translated text into ES/EN/DE.", Translations: app.Translations{app.LanguageSpanish: "hola"}, Timings: timings}
+
+	model := submitModel(t, NewModel(&fakeApp{result: baseResult}), "/translate hello")
+	if strings.Contains(model.View(), "Debug timings:") || strings.Contains(model.View(), "codex.exec") {
+		t.Fatalf("debug timings should be hidden when disabled: %s", model.View())
+	}
+
+	baseResult.DebugEnabled = true
+	model = submitModel(t, NewModel(&fakeApp{result: baseResult}), "/translate hello")
+	view := model.View()
+	for _, want := range []string{"Debug timings:", "provider.chat codex", "125ms", "codex.exec codex codex", "2s"} {
+		if !strings.Contains(view, want) {
+			t.Fatalf("view missing %q: %s", want, view)
+		}
+	}
+}
+
+func TestModelDebugTimingsShowOnCommandError(t *testing.T) {
+	timings := []app.Timing{
+		{Name: "provider.chat", Provider: app.ProviderCodexCLI, Duration: 125 * time.Millisecond},
+		{Name: "codex.exec", Provider: app.ProviderCodexCLI, Detail: "codex", Duration: 2 * time.Second},
+		{Name: "command.total", Duration: 3 * time.Second},
+	}
+	fake := &fakeApp{
+		result: app.Result{Command: app.CommandTranslate, DebugEnabled: true, Timings: timings},
+		err:    errors.New("translate text: provider timeout"),
+	}
+
+	model := submitModel(t, NewModel(fake), "/translate hello")
+	view := model.View()
+
+	for _, want := range []string{"Error: translate text: provider timeout", "Debug timings:", "provider.chat codex", "125ms", "codex.exec codex codex", "2s", "command.total", "3s"} {
 		if !strings.Contains(view, want) {
 			t.Fatalf("view missing %q: %s", want, view)
 		}

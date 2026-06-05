@@ -221,6 +221,18 @@ type RecentContext struct {
 	Summary    Summary    `json:"summary"`
 }
 
+func (c RecentContext) HasContent() bool {
+	if c.Transcript.Text != "" {
+		return true
+	}
+	for _, value := range c.Summary {
+		if value != "" {
+			return true
+		}
+	}
+	return false
+}
+
 type RealtimeChunk struct {
 	Transcript   Transcript   `json:"transcript"`
 	Translations Translations `json:"translations"`

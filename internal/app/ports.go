@@ -1,6 +1,9 @@
 package app
 
-import "context"
+import (
+	"context"
+	"time"
+)
 
 type Recorder interface {
 	Start(context.Context, AudioSource) error
@@ -30,6 +33,18 @@ type Chat interface {
 	Summarize(context.Context, Transcript, []Language, ModelRef) (Summary, error)
 	Translate(context.Context, string, []Language, ModelRef) (Translations, error)
 	Answer(context.Context, Question, RecentContext, ModelRef) (Answer, error)
+}
+
+type InstrumentedChat interface {
+	Chat
+	DebugTimings() []Timing
+}
+
+type Timing struct {
+	Name     string
+	Provider ProviderID
+	Detail   string
+	Duration time.Duration
 }
 
 type CredentialStore interface {

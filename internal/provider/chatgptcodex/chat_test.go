@@ -66,7 +66,7 @@ func TestChatAnswerBuildsRequestAndTrimsResponse(t *testing.T) {
 		t.Fatalf("messages = %d, want 2", len(req.Messages))
 	}
 	user := req.Messages[1].Text
-	for _, want := range []string{"Transcript:\nHola mundo", "Summary:\nES: saludo\nEN: greeting", "Question: What does hola mean?"} {
+	for _, want := range []string{"Transcript:\nHola mundo", "Summary:\nES: saludo\nEN: greeting", "User input: What does hola mean?"} {
 		if !strings.Contains(user, want) {
 			t.Fatalf("user message = %q, missing %q", user, want)
 		}

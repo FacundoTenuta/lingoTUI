@@ -7,6 +7,7 @@ import (
 	"reflect"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/FacundoTenuta/lingoTUI/internal/app"
 )
@@ -43,6 +44,31 @@ func TestChatTranslateRunsCodexExecAndParsesJSON(t *testing.T) {
 	for _, wantPrompt := range []string{"Respond only with a compact JSON object", "Languages: es, en, de", "Text:\nhello"} {
 		if !strings.Contains(runner.stdin, wantPrompt) {
 			t.Fatalf("stdin missing %q: %s", wantPrompt, runner.stdin)
+		}
+	}
+}
+
+func TestChatExposesCodexTimingMetadata(t *testing.T) {
+	clock := &fakeClock{current: time.Unix(0, 0), step: 50 * time.Millisecond}
+	chat, err := New(Config{Runner: &fakeRunner{output: `{"es":"hola"}`}, Now: clock.Now})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	_, err = chat.Translate(context.Background(), "hello", []app.Language{app.LanguageSpanish}, app.ModelRef{Provider: app.ProviderCodexCLI})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	joined := timingNames(chat.DebugTimings())
+	for _, want := range []string{"codex.output_temp", "codex.exec", "codex.output_read"} {
+		if !strings.Contains(joined, want) {
+			t.Fatalf("timings missing %q: %+v", want, chat.DebugTimings())
+		}
+	}
+	for _, timing := range chat.DebugTimings() {
+		if timing.Provider != app.ProviderCodexCLI || timing.Detail != defaultBinaryPath || timing.Duration <= 0 {
+			t.Fatalf("timing = %+v", timing)
 		}
 	}
 }
@@ -96,8 +122,30 @@ func TestChatAnswerReturnsFinalMessageText(t *testing.T) {
 	if answer != "They discussed the release." {
 		t.Fatalf("answer = %q", answer)
 	}
-	if !strings.Contains(runner.stdin, "Answer using only the recent transcript") || !strings.Contains(runner.stdin, "Question: what happened?") {
+	if !strings.Contains(runner.stdin, "Use the recent transcript and multilingual summary as additional context") || !strings.Contains(runner.stdin, "User input:\nwhat happened?") {
 		t.Fatalf("stdin = %s", runner.stdin)
+	}
+}
+
+func TestChatAnswerWithoutRecentContextSendsFreeFormPrompt(t *testing.T) {
+	runner := &fakeRunner{output: "Dog."}
+	chat, err := New(Config{Runner: runner})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	answer, err := chat.Answer(context.Background(), app.Question("perro"), app.RecentContext{}, app.ModelRef{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if answer != "Dog." {
+		t.Fatalf("answer = %q", answer)
+	}
+	if !strings.Contains(runner.stdin, "Follow the user's instruction") || !strings.Contains(runner.stdin, "User input:\nperro") {
+		t.Fatalf("stdin = %s", runner.stdin)
+	}
+	if strings.Contains(runner.stdin, "Transcript:") || strings.Contains(runner.stdin, "Summary:") {
+		t.Fatalf("free-form prompt should not include empty recent context: %s", runner.stdin)
 	}
 }
 
@@ -165,4 +213,23 @@ func hasArg(args []string, want string) bool {
 		}
 	}
 	return false
+}
+
+type fakeClock struct {
+	current time.Time
+	step    time.Duration
+}
+
+func (c *fakeClock) Now() time.Time {
+	now := c.current
+	c.current = c.current.Add(c.step)
+	return now
+}
+
+func timingNames(timings []app.Timing) string {
+	var names []string
+	for _, timing := range timings {
+		names = append(names, timing.Name)
+	}
+	return strings.Join(names, "\n")
 }

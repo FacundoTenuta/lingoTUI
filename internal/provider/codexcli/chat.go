@@ -8,6 +8,7 @@ import (
 	"os"
 	"os/exec"
 	"strings"
+	"time"
 
 	"github.com/FacundoTenuta/lingoTUI/internal/app"
 )
@@ -27,12 +28,15 @@ type Config struct {
 	BinaryPath string
 	WorkDir    string
 	Runner     Runner
+	Now        func() time.Time
 }
 
 type Chat struct {
 	binaryPath string
 	workDir    string
 	runner     Runner
+	now        func() time.Time
+	timings    []app.Timing
 }
 
 func New(config Config) (*Chat, error) {
@@ -44,7 +48,15 @@ func New(config Config) (*Chat, error) {
 	if runner == nil {
 		runner = execRunner{}
 	}
-	return &Chat{binaryPath: binaryPath, workDir: strings.TrimSpace(config.WorkDir), runner: runner}, nil
+	now := config.Now
+	if now == nil {
+		now = time.Now
+	}
+	return &Chat{binaryPath: binaryPath, workDir: strings.TrimSpace(config.WorkDir), runner: runner, now: now}, nil
+}
+
+func (c *Chat) DebugTimings() []app.Timing {
+	return append([]app.Timing(nil), c.timings...)
 }
 
 func (c *Chat) Summarize(ctx context.Context, transcript app.Transcript, languages []app.Language, model app.ModelRef) (app.Summary, error) {
@@ -78,7 +90,11 @@ func (c *Chat) Translate(ctx context.Context, text string, languages []app.Langu
 }
 
 func (c *Chat) Answer(ctx context.Context, question app.Question, recent app.RecentContext, model app.ModelRef) (app.Answer, error) {
-	content, err := c.run(ctx, model, fmt.Sprintf("Answer using only the recent transcript and multilingual summary. If the answer is not present, say so briefly.\n\nTranscript:\n%s\n\nSummary:\n%s\n\nQuestion: %s", recent.Transcript.Text, formatSummary(recent.Summary), question))
+	prompt := fmt.Sprintf("Follow the user's instruction or answer their question.\n\nUser input:\n%s", question)
+	if recent.HasContent() {
+		prompt = fmt.Sprintf("Follow the user's instruction or answer their question. Use the recent transcript and multilingual summary as additional context when relevant.\n\nTranscript:\n%s\n\nSummary:\n%s\n\nUser input:\n%s", recent.Transcript.Text, formatSummary(recent.Summary), question)
+	}
+	content, err := c.run(ctx, model, prompt)
 	if err != nil {
 		return "", err
 	}
@@ -86,6 +102,8 @@ func (c *Chat) Answer(ctx context.Context, question app.Question, recent app.Rec
 }
 
 func (c *Chat) run(ctx context.Context, model app.ModelRef, prompt string) (string, error) {
+	c.timings = nil
+	tempStart := c.now()
 	file, err := os.CreateTemp("", "lingotui-codex-*.txt")
 	if err != nil {
 		return "", fmt.Errorf("create codex output file: %w", err)
@@ -94,6 +112,7 @@ func (c *Chat) run(ctx context.Context, model app.ModelRef, prompt string) (stri
 	if err := file.Close(); err != nil {
 		return "", fmt.Errorf("close codex output file: %w", err)
 	}
+	c.addTiming("codex.output_temp", c.now().Sub(tempStart))
 	defer os.Remove(outputPath)
 
 	args := []string{"exec", "--sandbox", "read-only", "--output-last-message", outputPath}
@@ -105,11 +124,15 @@ func (c *Chat) run(ctx context.Context, model app.ModelRef, prompt string) (stri
 	}
 	args = append(args, "-")
 
+	execStart := c.now()
 	_, stderr, err := c.runner.Run(ctx, c.binaryPath, args, prompt)
+	c.addTiming("codex.exec", c.now().Sub(execStart))
 	if err != nil {
 		return "", codexError(err, stderr)
 	}
+	readStart := c.now()
 	data, err := os.ReadFile(outputPath)
+	c.addTiming("codex.output_read", c.now().Sub(readStart))
 	if err != nil {
 		return "", fmt.Errorf("read codex output: %w", err)
 	}
@@ -118,6 +141,10 @@ func (c *Chat) run(ctx context.Context, model app.ModelRef, prompt string) (stri
 		return "", errors.New("codex cli produced no final message")
 	}
 	return content, nil
+}
+
+func (c *Chat) addTiming(name string, duration time.Duration) {
+	c.timings = append(c.timings, app.Timing{Name: name, Provider: app.ProviderCodexCLI, Detail: c.binaryPath, Duration: duration})
 }
 
 func languageCodes(languages []app.Language) []string {

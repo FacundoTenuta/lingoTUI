@@ -28,6 +28,7 @@ type Dependencies struct {
 	SetupGuidance  []string
 	CodexCLIStatus func(context.Context) ConnectionOption
 	CodexCLIChat   Chat
+	Now            func() time.Time
 }
 
 type Service struct {
@@ -37,6 +38,7 @@ type Service struct {
 	realtime  bool
 	chunks    []RealtimeChunk
 	chatVia   ProviderID
+	debug     bool
 }
 
 type Result struct {
@@ -53,6 +55,8 @@ type Result struct {
 	Recording    bool
 	Realtime     bool
 	Chunks       []RealtimeChunk
+	DebugEnabled bool
+	Timings      []Timing
 }
 
 type ConnectionOption struct {
@@ -66,52 +70,78 @@ type ConnectionOption struct {
 func NewService(deps Dependencies) *Service { return &Service{deps: deps} }
 
 func (s *Service) HandleInput(ctx context.Context, input string) (Result, error) {
+	start := s.now()
 	cmd, err := ParseCommand(input)
 	if err != nil {
-		return Result{Command: cmd.Kind, Connected: s.connected, Recording: s.recording, Realtime: s.realtime}, err
+		return Result{Command: cmd.Kind, Connected: s.connected, Recording: s.recording, Realtime: s.realtime, DebugEnabled: s.debug}, err
 	}
+	var result Result
 	switch cmd.Kind {
 	case CommandEmpty:
-		return s.result(CommandEmpty, ""), nil
+		result = s.result(CommandEmpty, "")
 	case CommandConnect:
 		switch cmd.Connection {
 		case ConnectionTargetOptions:
-			return s.ConnectionOptions(ctx), nil
+			result = s.ConnectionOptions(ctx)
 		case ConnectionTargetOpenAI:
-			return s.Connect(ctx)
+			result, err = s.Connect(ctx)
 		case ConnectionTargetCodex:
-			return s.ConnectCodex(ctx), nil
+			result = s.ConnectCodex(ctx)
 		default:
 			return s.result(cmd.Kind, ""), ErrUnsupportedConnection
 		}
 	case CommandModels:
-		return s.Models(ctx)
+		result, err = s.Models(ctx)
 	case CommandRecord:
-		return s.Record(ctx, cmd.Source)
+		result, err = s.Record(ctx, cmd.Source)
 	case CommandStop:
-		return s.Stop(ctx)
+		result, err = s.Stop(ctx)
 	case CommandAsk:
-		return s.Ask(ctx, Question(cmd.Question))
+		result, err = s.Ask(ctx, Question(cmd.Question))
 	case CommandTranslate:
-		return s.Translate(ctx, cmd.Text)
+		result, err = s.Translate(ctx, cmd.Text)
+	case CommandDebug:
+		result = s.Debug(cmd.DebugAction)
 	case CommandRealtime:
 		switch cmd.RealtimeAction {
 		case RealtimeActionStart:
-			return s.RealtimeStart(ctx, cmd.Source)
+			result, err = s.RealtimeStart(ctx, cmd.Source)
 		case RealtimeActionChunk:
-			return s.RealtimeChunk(ctx)
+			result, err = s.RealtimeChunk(ctx)
 		case RealtimeActionStop:
-			return s.RealtimeStop(ctx)
+			result, err = s.RealtimeStop(ctx)
 		default:
 			return s.result(cmd.Kind, ""), ErrUnsupportedRealtime
 		}
 	case CommandClear:
-		return s.Clear(ctx)
+		result, err = s.Clear(ctx)
 	case CommandHelp:
-		return s.Help(ctx), nil
+		result = s.Help(ctx)
 	default:
 		return s.result(cmd.Kind, ""), ErrUnknownCommand
 	}
+	if s.debug && (cmd.Kind == CommandAsk || cmd.Kind == CommandTranslate) {
+		result.Timings = append(result.Timings, Timing{Name: "command.total", Duration: s.now().Sub(start)})
+	}
+	result.DebugEnabled = s.debug
+	return result, err
+}
+
+func (s *Service) Debug(action DebugAction) Result {
+	switch action {
+	case DebugActionOn:
+		s.debug = true
+	case DebugActionOff:
+		s.debug = false
+	case DebugActionStatus:
+	case DebugActionToggle:
+		s.debug = !s.debug
+	}
+	state := "off"
+	if s.debug {
+		state = "on"
+	}
+	return s.result(CommandDebug, "Debug timing mode is "+state+".")
 }
 
 func (s *Service) ConnectionOptions(ctx context.Context) Result {
@@ -469,15 +499,16 @@ func (s *Service) Ask(ctx context.Context, question Question) (Result, error) {
 	if chat == nil {
 		return s.result(CommandAsk, ""), fmt.Errorf("%w: chat; %s", ErrNotConfigured, missingChatGuidance(cfg))
 	}
-	recent, ok := s.deps.Context.Current()
-	if !ok {
-		return s.result(CommandAsk, ""), fmt.Errorf("%w: record and stop audio before asking a follow-up question", ErrNoRecentContext)
-	}
+	recent, _ := s.deps.Context.Current()
+	chatStart := s.now()
 	answer, err := chat.Answer(ctx, question, recent, chatModel)
+	chatDuration := s.now().Sub(chatStart)
+	result := s.result(CommandAsk, "")
+	result.Timings = s.chatTimings(chatModel.Provider, chatDuration, chat)
 	if err != nil {
-		return s.result(CommandAsk, ""), fmt.Errorf("answer question: %w", err)
+		return result, fmt.Errorf("answer question: %w", err)
 	}
-	result := s.result(CommandAsk, string(answer))
+	result.Message = string(answer)
 	result.Answer = answer
 	result.Context = recent
 	return result, nil
@@ -496,11 +527,15 @@ func (s *Service) Translate(ctx context.Context, text string) (Result, error) {
 	if chat == nil {
 		return s.result(CommandTranslate, ""), fmt.Errorf("%w: chat; %s", ErrNotConfigured, missingChatGuidance(cfg))
 	}
+	chatStart := s.now()
 	translations, err := chat.Translate(ctx, text, SummaryLanguages(), chatModel)
+	chatDuration := s.now().Sub(chatStart)
+	result := s.result(CommandTranslate, "")
+	result.Timings = s.chatTimings(chatModel.Provider, chatDuration, chat)
 	if err != nil {
-		return s.result(CommandTranslate, ""), fmt.Errorf("translate text: %w", err)
+		return result, fmt.Errorf("translate text: %w", err)
 	}
-	result := s.result(CommandTranslate, "Translated text into ES/EN/DE.")
+	result.Message = "Translated text into ES/EN/DE."
 	result.Translations = translations
 	return result, nil
 }
@@ -536,7 +571,22 @@ func (s *Service) loadConfig(ctx context.Context) (Config, error) {
 }
 
 func (s *Service) result(command CommandKind, message string) Result {
-	return Result{Command: command, Message: message, Connected: s.connected, Recording: s.recording, Realtime: s.realtime}
+	return Result{Command: command, Message: message, Connected: s.connected, Recording: s.recording, Realtime: s.realtime, DebugEnabled: s.debug}
+}
+
+func (s *Service) chatTimings(provider ProviderID, duration time.Duration, chat Chat) []Timing {
+	timings := []Timing{{Name: "provider.chat", Provider: provider, Duration: duration}}
+	if instrumented, ok := chat.(InstrumentedChat); ok {
+		timings = append(timings, instrumented.DebugTimings()...)
+	}
+	return timings
+}
+
+func (s *Service) now() time.Time {
+	if s.deps.Now != nil {
+		return s.deps.Now()
+	}
+	return time.Now()
 }
 
 func (s *Service) chatFor(cfg Config) (Chat, ModelRef) {

@@ -3,6 +3,7 @@ package tui
 import (
 	"fmt"
 	"strings"
+	"time"
 
 	"github.com/FacundoTenuta/lingoTUI/internal/app"
 	tea "github.com/charmbracelet/bubbletea"
@@ -219,7 +220,9 @@ func (m Model) finishCommand(msg commandFinishedMsg) (Model, tea.Cmd) {
 		m.Err = msg.Err
 		m.Status = statusError
 		m.StatusMessage = "Fix the issue below, then try again or run /help."
-		m.Messages = append(m.Messages, "Error: "+cleanErrorMessage(msg.Err.Error()))
+		for _, line := range appendDebugTimings([]string{"Error: " + cleanErrorMessage(msg.Err.Error())}, msg.Result) {
+			m.Messages = append(m.Messages, line)
+		}
 		cmd := m.nextDroppedRealtimeTick(msg)
 		return m, cmd
 	}
@@ -280,7 +283,7 @@ func statusForResult(result app.Result) statusState {
 			return statusInfo
 		}
 		return statusSuccess
-	case app.CommandRecord, app.CommandStop, app.CommandAsk, app.CommandTranslate, app.CommandRealtime, app.CommandClear:
+	case app.CommandRecord, app.CommandStop, app.CommandAsk, app.CommandTranslate, app.CommandDebug, app.CommandRealtime, app.CommandClear:
 		return statusSuccess
 	default:
 		return statusIdle
@@ -306,6 +309,8 @@ func statusMessageForResult(result app.Result) string {
 		return "Answer is shown below."
 	case app.CommandTranslate:
 		return "Translations are shown below."
+	case app.CommandDebug:
+		return "Debug timing mode updated."
 	case app.CommandRealtime:
 		return "Realtime translation updated."
 	case app.CommandClear:
@@ -356,7 +361,7 @@ func formatResult(result app.Result) []string {
 			}
 			lines = append(lines, line)
 		}
-		return lines
+		return appendDebugTimings(lines, result)
 	}
 	if len(result.Help) > 0 {
 		lines := []string{result.Message}
@@ -369,7 +374,7 @@ func formatResult(result app.Result) []string {
 				lines = append(lines, "  "+line)
 			}
 		}
-		return lines
+		return appendDebugTimings(lines, result)
 	}
 	if result.Command == app.CommandRealtime && len(result.Chunks) > 0 {
 		lines := []string{result.Message, "Realtime:"}
@@ -384,7 +389,7 @@ func formatResult(result app.Result) []string {
 				}
 			}
 		}
-		return lines
+		return appendDebugTimings(lines, result)
 	}
 	if result.Command == app.CommandStop && (result.Context.Transcript.Text != "" || len(result.Context.Summary) > 0) {
 		lines := []string{result.Message}
@@ -409,7 +414,7 @@ func formatResult(result app.Result) []string {
 				lines = appendBlock(lines, "  "+block.label, block.text)
 			}
 		}
-		return lines
+		return appendDebugTimings(lines, result)
 	}
 	if result.Command == app.CommandTranslate && len(result.Translations) > 0 {
 		lines := []string{result.Message, "Translations:"}
@@ -418,12 +423,33 @@ func formatResult(result app.Result) []string {
 				lines = appendBlock(lines, "  "+strings.ToUpper(string(language)), text)
 			}
 		}
-		return lines
+		return appendDebugTimings(lines, result)
 	}
 	if result.Message == "" {
-		return nil
+		return appendDebugTimings(nil, result)
 	}
-	return []string{result.Message}
+	return appendDebugTimings([]string{result.Message}, result)
+}
+
+func appendDebugTimings(lines []string, result app.Result) []string {
+	if !result.DebugEnabled || len(result.Timings) == 0 {
+		return lines
+	}
+	lines = append(lines, "Debug timings:")
+	for _, timing := range result.Timings {
+		if timing.Duration <= 0 || strings.TrimSpace(timing.Name) == "" {
+			continue
+		}
+		label := timing.Name
+		if timing.Provider != "" {
+			label += " " + string(timing.Provider)
+		}
+		if strings.TrimSpace(timing.Detail) != "" {
+			label += " " + timing.Detail
+		}
+		lines = append(lines, fmt.Sprintf("  %s: %s", label, timing.Duration.Round(time.Millisecond)))
+	}
+	return lines
 }
 
 func appendBlock(lines []string, label, text string) []string {

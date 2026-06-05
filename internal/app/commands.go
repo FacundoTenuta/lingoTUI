@@ -23,9 +23,19 @@ const (
 	CommandStop      CommandKind = "stop"
 	CommandAsk       CommandKind = "ask"
 	CommandTranslate CommandKind = "translate"
+	CommandDebug     CommandKind = "debug"
 	CommandRealtime  CommandKind = "realtime"
 	CommandClear     CommandKind = "clear"
 	CommandHelp      CommandKind = "help"
+)
+
+type DebugAction string
+
+const (
+	DebugActionToggle DebugAction = ""
+	DebugActionOn     DebugAction = "on"
+	DebugActionOff    DebugAction = "off"
+	DebugActionStatus DebugAction = "status"
 )
 
 type RealtimeAction string
@@ -50,6 +60,7 @@ type Command struct {
 	Source         AudioSource
 	Question       string
 	Text           string
+	DebugAction    DebugAction
 	RealtimeAction RealtimeAction
 	Connection     ConnectionTarget
 }
@@ -100,6 +111,19 @@ func ParseCommand(input string) (Command, error) {
 			return cmd, ErrMissingCommandArgument
 		}
 		cmd.Text = text
+	case "/debug":
+		cmd.Kind = CommandDebug
+		if len(parts) > 2 {
+			return cmd, ErrUnknownCommand
+		}
+		if len(parts) == 2 {
+			cmd.DebugAction = DebugAction(parts[1])
+			switch cmd.DebugAction {
+			case DebugActionOn, DebugActionOff, DebugActionStatus:
+			default:
+				return cmd, ErrUnknownCommand
+			}
+		}
 	case "/realtime":
 		cmd.Kind = CommandRealtime
 		if len(parts) < 2 {
@@ -155,8 +179,9 @@ func HelpEntries() []HelpEntry {
 		{"/stop", "stop recording for processing"},
 		{"/realtime start mic", "start chunked realtime translation from the microphone"},
 		{"/realtime stop", "stop chunked realtime translation"},
-		{"/ask <question>", "ask about the recent transcript and summary"},
+		{"/ask <text>", "send a free-form instruction or question to the configured chat model; recent context is included when available"},
 		{"/translate <text>", "translate text into ES/EN/DE using the configured chat model"},
+		{"/debug [on|off|status]", "toggle or inspect debug timing output for /ask and /translate"},
 		{"/clear", "clear in-memory transcript and summary context"},
 		{"/help", "show supported commands"},
 	}
