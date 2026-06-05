@@ -68,7 +68,7 @@ func TestServiceConnectWithoutTargetDoesNotPreservePreviousOpenAIConnection(t *t
 		t.Fatal(err)
 	}
 	if result.Connected {
-		t.Fatalf("result = %+v, /connect options must be status-only after OpenAI connection", result)
+		t.Fatalf("result = %+v, /connect options must not preserve the previous active connection", result)
 	}
 }
 
@@ -85,36 +85,78 @@ func TestServiceConnectOpenAIStillRunsDirectRuntimeCheck(t *testing.T) {
 	}
 }
 
-func TestServiceConnectCodexShowsTruthfulStatusWithoutChatConnection(t *testing.T) {
+func TestServiceConnectCodexSelectsCLIChatForSession(t *testing.T) {
 	service := NewService(Dependencies{CodexCLIStatus: func(context.Context) ConnectionOption {
 		return ConnectionOption{Target: ConnectionTargetCodex, Label: "Codex CLI", Status: "ready", Message: "installed at /opt/homebrew/bin/codex", Ready: true}
-	}})
+	}, CodexCLIChat: testutil.Provider{}})
 
 	result, err := service.HandleInput(context.Background(), "/connect codex")
 	if err != nil {
 		t.Fatal(err)
 	}
-	if result.Connected {
-		t.Fatalf("result = %+v, Codex status must not pretend chat is connected", result)
+	if !result.Connected {
+		t.Fatalf("result = %+v, Codex CLI should be connected when ready and wired", result)
 	}
 	joined := result.Message
 	for _, option := range result.Connections {
 		joined += "\n" + option.Label + " " + option.Status + " " + option.Message
 	}
-	for _, want := range []string{"does not run chat through Codex CLI yet", "/connect openai", "Codex CLI", "ready", "/opt/homebrew/bin/codex"} {
+	for _, want := range []string{"Codex CLI chat is selected", "Authentication", "Codex CLI", "ready", "/opt/homebrew/bin/codex"} {
 		if !strings.Contains(joined, want) {
 			t.Fatalf("codex status missing %q: %s", want, joined)
 		}
 	}
 }
 
-func TestServiceConnectCodexDoesNotPreservePreviousOpenAIConnection(t *testing.T) {
+func TestServiceConnectCodexRequiresReadyCLIAndAdapter(t *testing.T) {
+	tests := []struct {
+		name string
+		deps Dependencies
+		want string
+	}{
+		{
+			name: "missing cli",
+			deps: Dependencies{CodexCLIStatus: func(context.Context) ConnectionOption {
+				return ConnectionOption{Target: ConnectionTargetCodex, Label: "Codex CLI", Status: "missing", Message: "install codex", Ready: false}
+			}},
+			want: "not ready",
+		},
+		{
+			name: "adapter not wired",
+			deps: Dependencies{CodexCLIStatus: func(context.Context) ConnectionOption {
+				return ConnectionOption{Target: ConnectionTargetCodex, Label: "Codex CLI", Status: "ready", Message: "installed", Ready: true}
+			}},
+			want: "not wired",
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			result, err := NewService(tt.deps).HandleInput(context.Background(), "/connect codex")
+			if err != nil {
+				t.Fatal(err)
+			}
+			if result.Connected {
+				t.Fatalf("result = %+v, must not connect", result)
+			}
+			joined := result.Message
+			for _, option := range result.Connections {
+				joined += "\n" + option.Message
+			}
+			if !strings.Contains(joined, tt.want) {
+				t.Fatalf("message missing %q: %s", tt.want, joined)
+			}
+		})
+	}
+}
+
+func TestServiceConnectCodexOverridesPreviousOpenAIConnection(t *testing.T) {
 	credentials := &testutil.CredentialStore{Secrets: map[ProviderID]Secret{ProviderOpenAI: {Value: "sk-test"}}}
 	service := NewService(Dependencies{
 		Credentials: credentials,
 		CodexCLIStatus: func(context.Context) ConnectionOption {
 			return ConnectionOption{Target: ConnectionTargetCodex, Label: "Codex CLI", Status: "ready", Message: "installed", Ready: true}
 		},
+		CodexCLIChat: testutil.Provider{},
 	})
 
 	connected, err := service.HandleInput(context.Background(), "/connect openai")
@@ -129,8 +171,86 @@ func TestServiceConnectCodexDoesNotPreservePreviousOpenAIConnection(t *testing.T
 	if err != nil {
 		t.Fatal(err)
 	}
-	if result.Connected {
-		t.Fatalf("result = %+v, /connect codex must be status-only after OpenAI connection", result)
+	if !result.Connected {
+		t.Fatalf("result = %+v, /connect codex should keep connection active through Codex CLI", result)
+	}
+}
+
+func TestServiceConnectCodexRoutesAskAndTranslateThroughCLIChat(t *testing.T) {
+	direct := &recordingProvider{answer: Answer("direct answer")}
+	codex := &recordingProvider{
+		answer:       Answer("codex answer"),
+		translations: Translations{LanguageSpanish: "hola", LanguageEnglish: "hello", LanguageGerman: "hallo"},
+	}
+	service := NewService(Dependencies{
+		Chat: direct,
+		CodexCLIStatus: func(context.Context) ConnectionOption {
+			return ConnectionOption{Target: ConnectionTargetCodex, Label: "Codex CLI", Status: "ready", Message: "installed", Ready: true}
+		},
+		CodexCLIChat: codex,
+		Context:      &testutil.ContextStore{Has: true, Context: RecentContext{Transcript: Transcript{Text: "hola mundo"}, Summary: Summary{LanguageEnglish: "hello world"}}},
+	})
+
+	if result, err := service.HandleInput(context.Background(), "/connect codex"); err != nil || !result.Connected {
+		t.Fatalf("connect result = %+v, err = %v", result, err)
+	}
+	answer, err := service.HandleInput(context.Background(), "/ask what happened?")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if answer.Answer != "codex answer" || codex.question != "what happened?" || direct.question != "" {
+		t.Fatalf("answer=%q codex=%q direct=%q", answer.Answer, codex.question, direct.question)
+	}
+	translations, err := service.HandleInput(context.Background(), "/translate hello")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if translations.Translations[LanguageSpanish] != "hola" || codex.translationText != "hello" || direct.translationText != "" {
+		t.Fatalf("translations=%+v codex=%q direct=%q", translations.Translations, codex.translationText, direct.translationText)
+	}
+	if codex.answerModel.Provider != ProviderCodexCLI || codex.translationModel.Provider != ProviderCodexCLI {
+		t.Fatalf("codex models answer=%+v translate=%+v", codex.answerModel, codex.translationModel)
+	}
+	if codex.answerModel.Name != "" || codex.translationModel.Name != "" {
+		t.Fatalf("/connect codex must not pass OpenAI default model: answer=%+v translate=%+v", codex.answerModel, codex.translationModel)
+	}
+}
+
+func TestServiceCodexConfiguredChatModelRoutesWithExplicitModel(t *testing.T) {
+	codex := &recordingProvider{translations: Translations{LanguageSpanish: "hola"}}
+	service := NewService(Dependencies{
+		CodexCLIChat: codex,
+		Config: &testutil.ConfigStore{Config: Config{
+			TranscriptionModel: ModelRef{Provider: ProviderOpenAI, Name: DefaultTranscriptionModel, Purpose: ModelPurposeTranscription},
+			ChatModel:          ModelRef{Provider: ProviderCodexCLI, Name: "gpt-5.1", Purpose: ModelPurposeChat},
+		}},
+	})
+
+	_, err := service.HandleInput(context.Background(), "/translate hello")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if codex.translationText != "hello" || codex.translationModel.Provider != ProviderCodexCLI || codex.translationModel.Name != "gpt-5.1" {
+		t.Fatalf("codex route/model = text %q model %+v", codex.translationText, codex.translationModel)
+	}
+}
+
+func TestServiceCodexConfiguredWithoutModelDoesNotUseOpenAIDefault(t *testing.T) {
+	codex := &recordingProvider{translations: Translations{LanguageSpanish: "hola"}}
+	service := NewService(Dependencies{
+		CodexCLIChat: codex,
+		Config: &testutil.ConfigStore{Config: Config{
+			TranscriptionModel: ModelRef{Provider: ProviderOpenAI, Name: DefaultTranscriptionModel, Purpose: ModelPurposeTranscription},
+			ChatModel:          ModelRef{Provider: ProviderCodexCLI, Purpose: ModelPurposeChat},
+		}},
+	})
+
+	_, err := service.HandleInput(context.Background(), "/translate hello")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if codex.translationModel.Provider != ProviderCodexCLI || codex.translationModel.Name != "" {
+		t.Fatalf("codex model = %+v, want provider codex without default model", codex.translationModel)
 	}
 }
 
@@ -813,6 +933,8 @@ type recordingProvider struct {
 	translationText      string
 	translationLanguages []Language
 	translationModel     ModelRef
+	answerModel          ModelRef
+	summaryModel         ModelRef
 	transcribeCalls      int
 	translateCalls       int
 	transcribeFile       AudioFile
@@ -870,12 +992,14 @@ func (p *recordingProvider) Transcribe(_ context.Context, file AudioFile, model 
 	return p.transcript, nil
 }
 
-func (p *recordingProvider) Summarize(_ context.Context, _ Transcript, languages []Language, _ ModelRef) (Summary, error) {
+func (p *recordingProvider) Summarize(_ context.Context, _ Transcript, languages []Language, model ModelRef) (Summary, error) {
 	p.languages = append([]Language(nil), languages...)
+	p.summaryModel = model
 	return p.summary, nil
 }
 
-func (p *recordingProvider) Answer(_ context.Context, question Question, _ RecentContext, _ ModelRef) (Answer, error) {
+func (p *recordingProvider) Answer(_ context.Context, question Question, _ RecentContext, model ModelRef) (Answer, error) {
 	p.question = question
+	p.answerModel = model
 	return p.answer, nil
 }

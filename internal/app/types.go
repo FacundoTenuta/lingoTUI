@@ -10,6 +10,7 @@ type ProviderID string
 const (
 	ProviderOpenAI       ProviderID = "openai"
 	ProviderChatGPT      ProviderID = "chatgpt"
+	ProviderCodexCLI     ProviderID = "codex"
 	ProviderLocalWhisper ProviderID = "localwhisper"
 
 	DefaultOAuthExpirySkew = 5 * time.Minute
@@ -135,6 +136,9 @@ func UnsupportedRuntimeReason(cfg Config) string {
 	if cfg.TranscriptionModel.Provider == ProviderChatGPT {
 		return "ChatGPT/Codex transcription is not supported; use localwhisper or openai for transcription"
 	}
+	if cfg.TranscriptionModel.Provider == ProviderCodexCLI {
+		return "Codex CLI transcription is not supported; use localwhisper or openai for transcription"
+	}
 	if cfg.ChatModel.Provider == ProviderLocalWhisper {
 		return "localwhisper chat is not supported; use chatgpt or openai for chat"
 	}
@@ -167,7 +171,7 @@ func NormalizeConfig(cfg Config) Config {
 	if cfg.ChatModel.Provider == "" {
 		cfg.ChatModel.Provider = cfg.Provider
 	}
-	if cfg.ChatModel.Name == "" {
+	if cfg.ChatModel.Provider != ProviderCodexCLI && cfg.ChatModel.Name == "" {
 		cfg.ChatModel.Name = DefaultChatModel
 	}
 	if cfg.ChatModel.Purpose == "" {

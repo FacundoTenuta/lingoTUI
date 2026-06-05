@@ -149,7 +149,7 @@ func HelpEntries() []HelpEntry {
 	return []HelpEntry{
 		{"/connect", "show connection options"},
 		{"/connect openai", "check direct OpenAI runtime credentials and local settings without calling providers"},
-		{"/connect codex", "show Codex CLI setup/status guidance; chat execution is not implemented through Codex CLI"},
+		{"/connect codex", "select Codex CLI for chat execution in this session when the CLI is installed"},
 		{"/models", "show configured transcription and chat models"},
 		{"/record mic", "start microphone recording"},
 		{"/stop", "stop recording for processing"},
@@ -166,7 +166,7 @@ func DefaultSetupGuidance() []string {
 	return []string{
 		"OpenAI: run lingotui login openai to save your API key to macOS Keychain, or configure auth.json fallback for development, then run /connect openai. Secret values are never printed.",
 		"ChatGPT Plus/Pro: run lingotui login chatgpt to complete browser OAuth login. OpenAI remains the default; set chat_model.provider to chatgpt manually for experimental ChatGPT/Codex chat. Provider calls happen only on /stop, /ask, /translate, or realtime chunks.",
-		"Codex CLI: optional alternative status checks only whether the codex binary is installed; lingoTUI does not use Codex CLI for chat yet or infer authentication state.",
+		"Codex CLI: optional chat provider path. Install and authenticate the codex binary externally, then run /connect codex. lingoTUI checks the binary and auth is verified by Codex CLI only when /ask, /translate, or summaries execute.",
 		"LocalWhisper: install whisper-cli externally and configure local_whisper.binary_path and local_whisper.model_path for local transcription. Setup does not verify model files or execute whisper until /stop.",
 		"Microphone: grant macOS microphone permission before /record mic. Recording starts only after that command.",
 	}

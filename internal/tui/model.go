@@ -89,7 +89,7 @@ var menuItems = []menuItem{
 
 var connectMenuItems = []menuItem{
 	{Label: "OpenAI/direct", Description: "Check direct OpenAI runtime credentials and local settings", Command: "/connect openai"},
-	{Label: "Codex CLI", Description: "Show Codex CLI setup/status guidance only", Command: "/connect codex"},
+	{Label: "Codex CLI", Description: "Select Codex CLI for chat execution", Command: "/connect codex"},
 	{Label: "Back", Description: "Return to the main menu"},
 }
 

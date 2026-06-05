@@ -27,6 +27,7 @@ type Dependencies struct {
 	Context        ContextStore
 	SetupGuidance  []string
 	CodexCLIStatus func(context.Context) ConnectionOption
+	CodexCLIChat   Chat
 }
 
 type Service struct {
@@ -35,6 +36,7 @@ type Service struct {
 	recording bool
 	realtime  bool
 	chunks    []RealtimeChunk
+	chatVia   ProviderID
 }
 
 type Result struct {
@@ -113,7 +115,7 @@ func (s *Service) HandleInput(ctx context.Context, input string) (Result, error)
 }
 
 func (s *Service) ConnectionOptions(ctx context.Context) Result {
-	result := s.result(CommandConnect, "Choose a connection option: /connect openai for direct OpenAI, or /connect codex for Codex CLI setup/status guidance.")
+	result := s.result(CommandConnect, "Choose a connection option: /connect openai for direct OpenAI, or /connect codex for Codex CLI chat.")
 	result.Connected = false
 	result.Connections = []ConnectionOption{
 		{Target: ConnectionTargetOpenAI, Label: "OpenAI/direct", Status: "available", Message: "Uses configured OpenAI credentials. This is the current chat/transcription provider path.", Ready: true},
@@ -124,8 +126,27 @@ func (s *Service) ConnectionOptions(ctx context.Context) Result {
 
 func (s *Service) ConnectCodex(ctx context.Context) Result {
 	option := s.codexConnectionOption(ctx)
-	result := s.result(CommandConnect, "Codex CLI is an optional setup/status path. lingoTUI does not run chat through Codex CLI yet; use /connect openai for the supported direct provider check.")
-	result.Connected = false
+	if !option.Ready {
+		result := s.result(CommandConnect, "Codex CLI is not ready for chat execution. Install and authenticate with Codex CLI, then retry /connect codex.")
+		result.Connected = false
+		result.Connections = []ConnectionOption{option}
+		return result
+	}
+	if s.deps.CodexCLIChat == nil {
+		option.Ready = false
+		if strings.TrimSpace(option.Message) == "" {
+			option.Message = "Codex CLI adapter is not configured in this build"
+		} else {
+			option.Message += "; Codex CLI adapter is not configured in this build"
+		}
+		result := s.result(CommandConnect, "Codex CLI is installed, but lingoTUI is not wired to execute chat through it in this runtime.")
+		result.Connected = false
+		result.Connections = []ConnectionOption{option}
+		return result
+	}
+	s.connected = true
+	s.chatVia = ProviderCodexCLI
+	result := s.result(CommandConnect, "Codex CLI chat is selected for this session. Authentication/session state is not verified until Codex CLI executes /ask, /translate, or transcript summaries.")
 	result.Connections = []ConnectionOption{option}
 	return result
 }
@@ -167,6 +188,7 @@ func (s *Service) Connect(ctx context.Context) (Result, error) {
 		return s.result(CommandConnect, ""), fmt.Errorf("%w: local_whisper.model_path is required before /connect", ErrNotConfigured)
 	}
 	s.connected = true
+	s.chatVia = ""
 	return s.result(CommandConnect, fmt.Sprintf("Runtime config is ready: transcription %s/%s; chat %s/%s. Provider calls happen only on /stop, /ask, /translate, or realtime chunks.", cfg.TranscriptionModel.Provider, cfg.TranscriptionModel.Name, cfg.ChatModel.Provider, cfg.ChatModel.Name)), nil
 }
 
@@ -185,7 +207,7 @@ func (s *Service) codexConnectionOption(ctx context.Context) ConnectionOption {
 		Target:  ConnectionTargetCodex,
 		Label:   "Codex CLI",
 		Status:  "unknown",
-		Message: "Optional alternative not checked. Install codex and authenticate with Codex CLI; lingoTUI does not use it for chat yet.",
+		Message: "Optional alternative not checked. Install codex and authenticate with Codex CLI before selecting it for chat.",
 	}
 }
 
@@ -302,7 +324,8 @@ func (s *Service) processRealtimeChunks(ctx context.Context, files []AudioFile, 
 	if s.deps.Transcriber == nil {
 		return s.result(CommandRealtime, ""), fmt.Errorf("%w: transcriber; %s", ErrNotConfigured, missingTranscriberGuidance(cfg))
 	}
-	if s.deps.Chat == nil {
+	chat, chatModel := s.chatFor(cfg)
+	if chat == nil {
 		return s.result(CommandRealtime, ""), fmt.Errorf("%w: chat; %s", ErrNotConfigured, missingChatGuidance(cfg))
 	}
 	for _, file := range files {
@@ -310,7 +333,7 @@ func (s *Service) processRealtimeChunks(ctx context.Context, files []AudioFile, 
 		if err != nil {
 			return s.result(CommandRealtime, ""), fmt.Errorf("transcribe realtime chunk: %w", err)
 		}
-		translations, err := s.deps.Chat.Translate(ctx, transcript.Text, SummaryLanguages(), cfg.ChatModel)
+		translations, err := chat.Translate(ctx, transcript.Text, SummaryLanguages(), chatModel)
 		if err != nil {
 			return s.result(CommandRealtime, ""), fmt.Errorf("translate realtime chunk: %w", err)
 		}
@@ -384,7 +407,8 @@ func (s *Service) Stop(ctx context.Context) (result Result, resultErr error) {
 	if s.deps.Transcriber == nil {
 		return s.result(CommandStop, ""), fmt.Errorf("%w: transcriber; %s", ErrNotConfigured, missingTranscriberGuidance(cfg))
 	}
-	if s.deps.Chat == nil {
+	chat, chatModel := s.chatFor(cfg)
+	if chat == nil {
 		return s.result(CommandStop, ""), fmt.Errorf("%w: chat; %s", ErrNotConfigured, missingChatGuidance(cfg))
 	}
 	if s.deps.Context == nil {
@@ -394,7 +418,7 @@ func (s *Service) Stop(ctx context.Context) (result Result, resultErr error) {
 	if err != nil {
 		return s.result(CommandStop, ""), fmt.Errorf("transcribe audio: %w", err)
 	}
-	summary, err := s.deps.Chat.Summarize(ctx, transcript, SummaryLanguages(), cfg.ChatModel)
+	summary, err := chat.Summarize(ctx, transcript, SummaryLanguages(), chatModel)
 	if err != nil {
 		return s.result(CommandStop, ""), fmt.Errorf("summarize transcript: %w", err)
 	}
@@ -424,6 +448,9 @@ func missingChatGuidance(cfg Config) string {
 	if cfg.ChatModel.Provider == ProviderChatGPT || cfg.Provider == ProviderChatGPT {
 		return "ChatGPT/Codex chat is not configured; run lingotui login chatgpt before /ask, /stop, or /translate"
 	}
+	if cfg.ChatModel.Provider == ProviderCodexCLI || cfg.Provider == ProviderCodexCLI {
+		return "Codex CLI chat is not configured; install/authenticate codex and run /connect codex before /ask, /stop, or /translate"
+	}
 	return "run lingotui login openai or configure auth.json fallback, then run /connect before processing audio"
 }
 
@@ -434,22 +461,19 @@ func (s *Service) Ask(ctx context.Context, question Question) (Result, error) {
 	if s.deps.Context == nil {
 		return s.result(CommandAsk, ""), fmt.Errorf("%w: context store", ErrNotConfigured)
 	}
-	if s.deps.Chat == nil {
-		cfg, err := s.loadConfig(ctx)
-		if err != nil {
-			return s.result(CommandAsk, ""), err
-		}
+	cfg, err := s.loadConfig(ctx)
+	if err != nil {
+		return s.result(CommandAsk, ""), err
+	}
+	chat, chatModel := s.chatFor(cfg)
+	if chat == nil {
 		return s.result(CommandAsk, ""), fmt.Errorf("%w: chat; %s", ErrNotConfigured, missingChatGuidance(cfg))
 	}
 	recent, ok := s.deps.Context.Current()
 	if !ok {
 		return s.result(CommandAsk, ""), fmt.Errorf("%w: record and stop audio before asking a follow-up question", ErrNoRecentContext)
 	}
-	cfg, err := s.loadConfig(ctx)
-	if err != nil {
-		return s.result(CommandAsk, ""), err
-	}
-	answer, err := s.deps.Chat.Answer(ctx, question, recent, cfg.ChatModel)
+	answer, err := chat.Answer(ctx, question, recent, chatModel)
 	if err != nil {
 		return s.result(CommandAsk, ""), fmt.Errorf("answer question: %w", err)
 	}
@@ -464,18 +488,15 @@ func (s *Service) Translate(ctx context.Context, text string) (Result, error) {
 	if text == "" {
 		return s.result(CommandTranslate, ""), ErrMissingCommandArgument
 	}
-	if s.deps.Chat == nil {
-		cfg, err := s.loadConfig(ctx)
-		if err != nil {
-			return s.result(CommandTranslate, ""), err
-		}
-		return s.result(CommandTranslate, ""), fmt.Errorf("%w: chat; %s", ErrNotConfigured, missingChatGuidance(cfg))
-	}
 	cfg, err := s.loadConfig(ctx)
 	if err != nil {
 		return s.result(CommandTranslate, ""), err
 	}
-	translations, err := s.deps.Chat.Translate(ctx, text, SummaryLanguages(), cfg.ChatModel)
+	chat, chatModel := s.chatFor(cfg)
+	if chat == nil {
+		return s.result(CommandTranslate, ""), fmt.Errorf("%w: chat; %s", ErrNotConfigured, missingChatGuidance(cfg))
+	}
+	translations, err := chat.Translate(ctx, text, SummaryLanguages(), chatModel)
 	if err != nil {
 		return s.result(CommandTranslate, ""), fmt.Errorf("translate text: %w", err)
 	}
@@ -516,6 +537,18 @@ func (s *Service) loadConfig(ctx context.Context) (Config, error) {
 
 func (s *Service) result(command CommandKind, message string) Result {
 	return Result{Command: command, Message: message, Connected: s.connected, Recording: s.recording, Realtime: s.realtime}
+}
+
+func (s *Service) chatFor(cfg Config) (Chat, ModelRef) {
+	if s.chatVia == ProviderCodexCLI || cfg.ChatModel.Provider == ProviderCodexCLI || cfg.Provider == ProviderCodexCLI {
+		model := ModelRef{Provider: ProviderCodexCLI, Purpose: ModelPurposeChat}
+		if cfg.ChatModel.Provider == ProviderCodexCLI {
+			model = cfg.ChatModel
+			model.Provider = ProviderCodexCLI
+		}
+		return s.deps.CodexCLIChat, model
+	}
+	return s.deps.Chat, cfg.ChatModel
 }
 
 func modelUsesProvider(cfg Config, provider ProviderID) bool {

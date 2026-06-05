@@ -287,10 +287,11 @@ func TestModelUpdateConnectSubmenuOpenAISubmitsDirectConnect(t *testing.T) {
 	}
 }
 
-func TestModelUpdateConnectSubmenuCodexSubmitsStatusOnlyConnect(t *testing.T) {
+func TestModelUpdateConnectSubmenuCodexSubmitsFunctionalConnect(t *testing.T) {
 	fake := &fakeApp{result: app.Result{
-		Command: app.CommandConnect,
-		Message: "Codex CLI is status-only.",
+		Command:   app.CommandConnect,
+		Message:   "Codex CLI chat is selected for this session.",
+		Connected: true,
 		Connections: []app.ConnectionOption{
 			{Target: app.ConnectionTargetCodex, Label: "Codex CLI", Status: "ready", Message: "installed", Ready: true},
 		},
@@ -307,10 +308,10 @@ func TestModelUpdateConnectSubmenuCodexSubmitsStatusOnlyConnect(t *testing.T) {
 	if got, want := strings.Join(fake.inputs, ","), "/connect codex"; got != want {
 		t.Fatalf("inputs = %q, want %q", got, want)
 	}
-	if model.connected || strings.Contains(model.View(), "Connection: connected") {
-		t.Fatalf("codex submenu action must not mark chat connected: %s", model.View())
+	if !model.connected || !strings.Contains(model.View(), "Connection: connected") {
+		t.Fatalf("codex submenu action should mark chat connected: %s", model.View())
 	}
-	for _, want := range []string{"Codex CLI is status-only", "Codex CLI", "ready", "installed"} {
+	for _, want := range []string{"Codex CLI chat is selected", "Codex CLI", "ready", "installed"} {
 		if !strings.Contains(model.View(), want) {
 			t.Fatalf("view missing %q: %s", want, model.View())
 		}
@@ -350,7 +351,7 @@ func TestModelUpdateConnectMenuClearsPreviousConnectedState(t *testing.T) {
 		Message: "Choose a connection option.",
 		Connections: []app.ConnectionOption{
 			{Target: app.ConnectionTargetOpenAI, Label: "OpenAI/direct", Status: "available", Message: "current provider path", Ready: true},
-			{Target: app.ConnectionTargetCodex, Label: "Codex CLI", Status: "ready", Message: "status/guidance only", Ready: true},
+			{Target: app.ConnectionTargetCodex, Label: "Codex CLI", Status: "ready", Message: "installed; selectable for chat", Ready: true},
 		},
 	}}
 	model := NewModel(fake)
@@ -363,12 +364,13 @@ func TestModelUpdateConnectMenuClearsPreviousConnectedState(t *testing.T) {
 	}
 }
 
-func TestModelUpdateConnectCodexClearsPreviousConnectedState(t *testing.T) {
+func TestModelUpdateConnectCodexCanKeepConnectedState(t *testing.T) {
 	fake := &fakeApp{result: app.Result{
-		Command: app.CommandConnect,
-		Message: "Codex CLI is status-only.",
+		Command:   app.CommandConnect,
+		Message:   "Codex CLI chat is selected for this session.",
+		Connected: true,
 		Connections: []app.ConnectionOption{
-			{Target: app.ConnectionTargetCodex, Label: "Codex CLI", Status: "ready", Message: "status/guidance only", Ready: true},
+			{Target: app.ConnectionTargetCodex, Label: "Codex CLI", Status: "ready", Message: "installed", Ready: true},
 		},
 	}}
 	model := NewModel(fake)
@@ -376,8 +378,8 @@ func TestModelUpdateConnectCodexClearsPreviousConnectedState(t *testing.T) {
 
 	model = submitModel(t, model, "/connect codex")
 
-	if model.connected || strings.Contains(model.View(), "Connection: connected") {
-		t.Fatalf("connect codex must clear previous connected state: %s", model.View())
+	if !model.connected || !strings.Contains(model.View(), "Connection: connected") {
+		t.Fatalf("connect codex should stay connected when Codex CLI is selected: %s", model.View())
 	}
 }
 

@@ -410,6 +410,52 @@ func TestBuildRuntimeUsesLocalWhisperForTranscriptionAndOpenAIForChat(t *testing
 	}
 }
 
+func TestBuildRuntimeConnectCodexRoutesTranslateThroughCLIChat(t *testing.T) {
+	baseDir := t.TempDir()
+	codexChat := &countingProvider{}
+	codexConstructs := 0
+
+	model, err := buildRuntimeWithOptions(baseDir, runtimeOptions{
+		newCodexCLIChat: func() (app.Chat, error) {
+			codexConstructs++
+			return codexChat, nil
+		},
+		newRecorder:     func() app.Recorder { return &countingRecorder{} },
+		audioChecker:    &countingAudioChecker{status: setup.ItemStatus{Name: "Microphone", State: setup.StateReady, Message: "ready"}},
+		codexChecker:    &countingCodexChecker{status: setup.ItemStatus{Name: "Codex CLI", State: setup.StateReady, Message: "installed", Path: "/opt/bin/codex"}},
+		credentialStore: &missingRuntimeCredentialStore{},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if codexConstructs != 1 || codexChat.translates != 0 {
+		t.Fatalf("startup codex constructs/translates = %d/%d, want 1/0", codexConstructs, codexChat.translates)
+	}
+
+	updated, cmd := model.Update(tui.Submit("/connect codex"))
+	if cmd == nil {
+		t.Fatal("expected /connect codex command")
+	}
+	updated, _ = updated.Update(cmd())
+	model = updated.(tui.Model)
+	if !strings.Contains(model.View(), "Connection: connected") || !strings.Contains(model.View(), "Codex CLI chat is selected") {
+		t.Fatalf("view missing Codex connection:\n%s", model.View())
+	}
+
+	updated, cmd = model.Update(tui.Submit("/translate hello"))
+	if cmd == nil {
+		t.Fatal("expected /translate command")
+	}
+	updated, _ = updated.Update(cmd())
+	model = updated.(tui.Model)
+	if codexChat.translates != 1 {
+		t.Fatalf("codex translates = %d, want 1", codexChat.translates)
+	}
+	if !strings.Contains(model.View(), "Translated text") {
+		t.Fatalf("view missing translate result:\n%s", model.View())
+	}
+}
+
 func TestDefaultChatGPTChatConstructionHasNoCredentialSideEffects(t *testing.T) {
 	store := &countingRuntimeCredentialStore{
 		credential: app.Credential{

@@ -15,6 +15,7 @@ import (
 	"github.com/FacundoTenuta/lingoTUI/internal/credentials"
 	"github.com/FacundoTenuta/lingoTUI/internal/provider/chatgptauth"
 	"github.com/FacundoTenuta/lingoTUI/internal/provider/chatgptcodex"
+	"github.com/FacundoTenuta/lingoTUI/internal/provider/codexcli"
 	"github.com/FacundoTenuta/lingoTUI/internal/provider/localwhisper"
 	"github.com/FacundoTenuta/lingoTUI/internal/provider/openai"
 	"github.com/FacundoTenuta/lingoTUI/internal/setup"
@@ -31,6 +32,7 @@ type runtimeOptions struct {
 	newOpenAIProvider          func(app.Secret) (providerClient, error)
 	newLocalWhisperTranscriber func(app.LocalWhisperConfig) (app.Transcriber, error)
 	newChatGPTChat             func(app.AuthCredentialStore) (app.Chat, error)
+	newCodexCLIChat            func() (app.Chat, error)
 	newRecorder                func() app.Recorder
 	newChunkRecorder           func() app.ChunkRecorder
 	audioChecker               setup.AudioPermissionChecker
@@ -111,6 +113,16 @@ func buildRuntimeWithOptions(baseDir string, options runtimeOptions) (tui.Model,
 			return tui.Model{}, fmt.Errorf("provider %s: %w", app.ProviderChatGPT, err)
 		}
 	}
+	var codexChat app.Chat
+	if options.newCodexCLIChat != nil {
+		codexChat, err = options.newCodexCLIChat()
+		if err != nil {
+			return tui.Model{}, fmt.Errorf("provider %s: %w", app.ProviderCodexCLI, err)
+		}
+	}
+	if cfg.ChatModel.Provider == app.ProviderCodexCLI {
+		chat = codexChat
+	}
 
 	service := app.NewService(app.Dependencies{
 		Recorder:      options.newRecorder(),
@@ -124,6 +136,7 @@ func buildRuntimeWithOptions(baseDir string, options runtimeOptions) (tui.Model,
 		CodexCLIStatus: func(ctx context.Context) app.ConnectionOption {
 			return codexConnectionOption(ctx, options.codexChecker)
 		},
+		CodexCLIChat: codexChat,
 	})
 	return tui.NewModel(service, setupLines...), nil
 }
@@ -134,7 +147,7 @@ func codexConnectionOption(ctx context.Context, checker setup.CodexCLIChecker) a
 			Target:  app.ConnectionTargetCodex,
 			Label:   "Codex CLI",
 			Status:  string(setup.StateUnknown),
-			Message: "optional alternative not checked; install codex and authenticate with Codex CLI. Chat execution through Codex CLI is not implemented in lingoTUI yet.",
+			Message: "optional alternative not checked; install codex and authenticate with Codex CLI before selecting it for chat.",
 		}
 	}
 	item := checker.CodexCLI(ctx)
@@ -153,7 +166,7 @@ func codexConnectionOption(ctx context.Context, checker setup.CodexCLIChecker) a
 	if item.Path != "" {
 		message = fmt.Sprintf("%s (path: %s)", message, item.Path)
 	}
-	message += "; chat execution through Codex CLI is not implemented in lingoTUI yet"
+	message += "; authentication/session state is verified by Codex CLI only when chat executes"
 	return app.ConnectionOption{
 		Target:  app.ConnectionTargetCodex,
 		Label:   label,
@@ -200,6 +213,9 @@ func defaultRuntimeOptions() runtimeOptions {
 			}
 			return chatgptcodex.NewChat(client), nil
 		},
+		newCodexCLIChat: func() (app.Chat, error) {
+			return codexcli.New(codexcli.Config{WorkDir: "."})
+		},
 		newRecorder: func() app.Recorder {
 			return audio.NewFFmpegRecorder(
 				audio.WithInputDevice(os.Getenv("LINGOTUI_FFMPEG_MIC_DEVICE")),
@@ -235,6 +251,9 @@ func normalizeRuntimeOptions(options runtimeOptions) runtimeOptions {
 	if options.newChatGPTChat == nil {
 		options.newChatGPTChat = defaults.newChatGPTChat
 	}
+	if options.newCodexCLIChat == nil {
+		options.newCodexCLIChat = defaults.newCodexCLIChat
+	}
 	if options.newRecorder == nil {
 		options.newRecorder = defaults.newRecorder
 	}
@@ -267,13 +286,13 @@ func (codexCLIPathChecker) CodexCLI(context.Context) setup.ItemStatus {
 		return setup.ItemStatus{
 			Name:    "Codex CLI",
 			State:   setup.StateMissing,
-			Message: "optional alternative missing; install Codex CLI and authenticate with Codex CLI before using this future path",
+			Message: "optional alternative missing; install Codex CLI and authenticate with Codex CLI before selecting it for chat",
 		}
 	}
 	return setup.ItemStatus{
 		Name:    "Codex CLI",
 		Path:    path,
 		State:   setup.StateReady,
-		Message: "installed; authentication/session state is not verified by lingoTUI yet",
+		Message: "installed; authentication/session state is verified by Codex CLI only when chat executes",
 	}
 }
